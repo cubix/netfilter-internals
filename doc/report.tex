@@ -43,7 +43,7 @@ matched. The userspace tool \code{iptables} is used to manipulate the IP
 tables. The data structures are designed such that they can be used in
 both user and kernel mode.
 
-\subsubsection{ipt\_ip}
+\subsubsection{ipt\_ip}\label{ipt_ip}
 
 This struct specifies the minimal IP header information needed
 to to identify a packet. The \code{src} and \code{dst} fields identify
@@ -125,13 +125,13 @@ struct ipt_entry
 
 \subsubsection{xt\_entry\_match (ipt\_entry\_match)}
 
-Most ``higher level''' code refers to \code{ipf\_entry\_match}
-structures to define a match entry, such as the userland
-\code{iptables} tool. However, a macro redefines
-\code{ipf\_entry\_match} as \code{xt\_entry\_entry}, which provides a
-thin layer of abstraction so that code can be reused regardless of
-whether it is executing in the kernel or in user space. We will
-discuss \code{xt\_match} since we are concerned with the kernel.
+This provides a thin layer of abstraction so that code can be reused
+regardless of whether it is executing in the kernel or in user
+space. We will discuss \code{xt\_match} since we are concerned with
+the kernel\footnote{In some cases, structs have two names: one begining with xt and one
+without. This is a result of the unification of common code in
+ip\_tables, ip6\_tables and arp\_tables into x\_tables (hence xt) -- a table
+structure that can handle all three protocols.}.
 
 \begin{lstlisting}
 struct xt_entry_match
@@ -160,7 +160,7 @@ struct xt_entry_match
 };
 \end{lstlisting}
 
-\subsubsection{xt\_match}
+\subsubsection{xt\_match}\label{xt_match}
 This structure represents a match entry in a rule (possibly one of
 many). It is fairly abstract and meant to represent all types of
 matches.
@@ -176,9 +176,13 @@ the future, backwards compatibility can be maintained.
 
 The \code{match} field is a pointer to the boolean function that
 determines whether or not the packet will be matched. The \code{skb}
-parameteris a pointer to a copy of the packet and
+parameter is a pointer to a copy of the packet and
 \code{xt\_match\_param} is a pointer to additional parameters the
 match function can use to make the decision.
+
+The function pointed to by \code{checkentry} is called when the user
+attempts to add this type of match to the rule (whatever that type is). The struct
+\code{xt\_mtchk\_param} (\ref{xt_mtchk_param}) is passed to make that decision. 
 
 \begin{lstlisting}
 struct xt_match
@@ -223,6 +227,112 @@ struct xt_match
         
 \end{lstlisting}
 
-\subsubsection{ipt\_entry\_target}
+\subsubsection{xt\_mtchk\_param}\label{xt_mtchk_param}
+
+This struct is passed to a match extesion's \code{checkentry}
+function. The name of the table is in \code{table}. Protocol family
+information, (e.g. \code{ipt\_ip} (\ref{ipt_ip}) for IPv4) is stored
+in \code{entryinfo}.  The pointer \code{match} is the \code{xt\_match}
+through which this function was invoked. The protocol family number is
+stored in \code{family}.  Which hooks the new rule is reachable from
+is stored in \code{hook\_mask} where each hook is defined by a
+bit. Any additional information is stored in \code{matchinfo}.
+
+\begin{lstlisting}
+struct xt_mtchk_param {
+        const char *table;
+        const void *entryinfo;
+	const struct xt_match *match;
+        void *matchinfo;
+	unsigned int hook_mask;
+	u_int8_t family;
+};
+\end{lstlisting}
+
+\subsubsection{xt\_target (ipt\_entry\_target)}
+
+This structure represents the final target entry in a rule and is
+analogous to \code{xt\_match} (\ref{xt_match}). Just as
+\code{xt\_match} has a pointer to a match and checkentry functions,
+\code{xt\_target} has pointers to a \code{target} function and its own
+\code{checkentry} function. Similarly, it has to deal with possible
+differences in memory alignment between kernel and user space. The
+\code{me} pointer is used to identify the entry within modules.
+
+\begin{lstlisting}
+struct xt_target
+{
+        struct list_head list;
+
+        const char name[XT_FUNCTION_MAXNAMELEN-1];
+
+        /* Returns verdict. Argument order changed since 2.6.9, as this                                                                                     
+           must now handle non-linear skbs, using skb_copy_bits and                                                                                         
+           skb_ip_make_writable. */
+        unsigned int (*target)(struct sk_buff *skb,
+                               const struct xt_target_param *);
+
+        /* Called when user tries to insert an entry of this type:                                                                                          
+           hook_mask is a bitmask of hooks from which it can be                                                                                             
+           called. */
+        /* Should return true or false. */
+        bool (*checkentry)(const struct xt_tgchk_param *);
+
+        /* Called when entry of this type deleted. */
+        void (*destroy)(const struct xt_tgdtor_param *);
+
+        /* Called when userspace align differs from kernel space one */
+        void (*compat_from_user)(void *dst, void *src);
+        int (*compat_to_user)(void __user *dst, void *src);
+
+        /* Set this to THIS_MODULE if you are a module, otherwise NULL */
+        struct module *me;
+
+        const char *table;
+        unsigned int targetsize;
+        unsigned int compatsize;
+        unsigned int hooks;
+        unsigned short proto;
+
+        unsigned short family;
+        u_int8_t revision;
+};
+\end{lstlisting}
+
+\subsection{Execution}
+
+\subsubsection{Rule Matching}
+
+The \code{\_MATCH\_ITERATE} macros iterate through the list of
+\code{xt\_match} structures starting from the \code{ipt\_entry}. 
+
+\begin{lstlisting}
+  /* fn returns 0 to continue iteration */
+#define IPT_MATCH_ITERATE(e, fn, args...) \
+	XT_MATCH_ITERATE(struct ipt_entry, e, fn, ## args)
+\end{lstlisting}
+
+
+\begin{lstlisting}
+/* fn returns 0 to continue iteration */
+#define XT_MATCH_ITERATE(type, e, fn, args...)			\
+({								\
+	unsigned int __i;					\
+	int __ret = 0;						\
+	struct xt_entry_match *__m;				\
+								\
+	for (__i = sizeof(type);				\
+	     __i < (e)->target_offset;				\
+	     __i += __m->u.match_size) {			\
+		__m = (void *)e + __i;				\
+								\
+		__ret = fn(__m , ## args);			\
+		if (__ret != 0)					\
+			break;					\
+	}							\
+	__ret;							\
+})
+
+\end{lstlisting}
 
 \end{document}
