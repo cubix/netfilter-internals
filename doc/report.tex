@@ -8,6 +8,7 @@
 \usepackage[pdftex]{graphicx}
 \usepackage{listings}
 \newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\figref}[1]{(fig. \ref{#1})}
 %\bibliographystyle{prsty} % Choose Phys. Rev. stylle for bibliography
 \bibliographystyle{plain}
 
@@ -130,7 +131,7 @@ regardless of whether it is executing in the kernel or in user
 space. We will discuss \code{xt\_match} since we are concerned with
 the kernel\footnote{In some cases, structs have two names: one begining with xt and one
 without. This is a result of the unification of common code in
-ip\_tables, ip6\_tables and arp\_tables into x\_tables (hence xt) -- a table
+\code{ip\_tables|, \code{ip6\_tables} and \code{arp\_tables} into \code{x\_tables} (hence xt) -- a table
 structure that can handle all three protocols.}.
 
 \begin{lstlisting}
@@ -301,10 +302,10 @@ struct xt_target
 
 \subsection{Execution}
 
-\subsubsection{Rule Matching}
+\subsubsection{ip\_tables.h}
 
-The \code{\_MATCH\_ITERATE} macros iterate through the list of
-\code{xt\_match} structures starting from the \code{ipt\_entry}. 
+For historical reasons, the IP specific \code{IPT\_MATCH\_ITERATE}
+macro calls the more general \code{XT\_MATCH\_ITERATE}. 
 
 \begin{lstlisting}
   /* fn returns 0 to continue iteration */
@@ -312,6 +313,24 @@ The \code{\_MATCH\_ITERATE} macros iterate through the list of
 	XT_MATCH_ITERATE(struct ipt_entry, e, fn, ## args)
 \end{lstlisting}
 
+Similarly, the IPv4 specific \code{IPT\_ENTRY\_ITERATRE} calls
+\code{XT\_ENTRY\_ITERATE} to iterate through the rule entries begining
+at \code{ipt\_entry}.
+
+\begin{lstlisting}
+  /* fn returns 0 to continue iteration */
+#define IPT_ENTRY_ITERATE(entries, size, fn, args...) \
+	XT_ENTRY_ITERATE(struct ipt_entry, entries, size, fn, ## args)
+\end{lstlisting}
+
+\subsubsection{x\_tables.h}
+
+The \code{XT\_MATCH\_ITERATE} macro expands to a for loop that
+iterates through the list of \code{xt\_match} structures starting from
+the \code{ipt\_entry}. With each step, the index into the rule is
+advanced by the length of the current \code{xp\_match} object and the
+associated match function is called. If the match functions returns 0, i.e. the packet
+matches, the iteration continues.
 
 \begin{lstlisting}
 /* fn returns 0 to continue iteration */
@@ -333,6 +352,104 @@ The \code{\_MATCH\_ITERATE} macros iterate through the list of
 	__ret;							\
 })
 
+\end{lstlisting}
+
+The \code{XT\_ENTRY\_ITERATE\_CONTINUE} and \code{XT\_ENTRY\_ITERATE}
+macros are used whenever it is necessary to walk through a table
+applying the function \code{fn} on each
+entry. \footnote{\code{XT\_ENTRY\_ITERATE} skips the application of
+  \code{fn} on the first entry}.
+
+\begin{lstlisting}
+/* fn returns 0 to continue iteration */
+#define XT_ENTRY_ITERATE(type, entries, size, fn, args...) \
+	XT_ENTRY_ITERATE_CONTINUE(type, entries, size, 0, fn, args)
+
+/* fn returns 0 to continue iteration */
+#define XT_ENTRY_ITERATE_CONTINUE(type, entries, size, n, fn, args...) \
+({								\
+	unsigned int __i, __n;					\
+	int __ret = 0;						\
+	type *__entry;						\
+								\
+	for (__i = 0, __n = 0; __i < (size);			\
+	     __i += __entry->next_offset, __n++) { 		\
+		__entry = (void *)(entries) + __i;		\
+		if (__n < n)					\
+			continue;				\
+								\
+		__ret = fn(__entry , ## args);			\
+		if (__ret != 0)					\
+			break;					\
+	}							\
+	__ret;							\
+})
+\end{lstlisting}
+
+\subsubsection{ip\_tables.c}
+
+Below is the basic match function that is performed on every incoming
+packet (with some debugging statements omitted).
+
+\begin{lstlisting}
+  /* Returns whether matches rule or not. */
+/* Performance critical - called for every packet */
+static inline bool
+ip_packet_match(const struct iphdr *ip,
+		const char *indev,
+		const char *outdev,
+		const struct ipt_ip *ipinfo,
+		int isfrag)
+{
+	unsigned long ret;
+
+#define FWINV(bool, invflg) ((bool) ^ !!(ipinfo->invflags & (invflg)))
+
+	if (FWINV((ip->saddr&ipinfo->smsk.s_addr) != ipinfo->src.s_addr,
+		  IPT_INV_SRCIP)
+	    || FWINV((ip->daddr&ipinfo->dmsk.s_addr) != ipinfo->dst.s_addr,
+		     IPT_INV_DSTIP)) {
+		dprintf("Source or dest mismatch.\n");
+		return false;
+	}
+
+	ret = ifname_compare_aligned(indev, ipinfo->iniface, ipinfo->iniface_mask);
+
+	if (FWINV(ret != 0, IPT_INV_VIA_IN)) {
+		dprintf("VIA in mismatch (%s vs %s).%s\n",
+			indev, ipinfo->iniface,
+			ipinfo->invflags&IPT_INV_VIA_IN ?" (INV)":"");
+		return false;
+	}
+
+	ret = ifname_compare_aligned(outdev, ipinfo->outiface, ipinfo->outiface_mask);
+
+	if (FWINV(ret != 0, IPT_INV_VIA_OUT)) {
+		dprintf("VIA out mismatch (%s vs %s).%s\n",
+			outdev, ipinfo->outiface,
+			ipinfo->invflags&IPT_INV_VIA_OUT ?" (INV)":"");
+		return false;
+	}
+
+	/* Check specific protocol */
+	if (ipinfo->proto
+	    && FWINV(ip->protocol != ipinfo->proto, IPT_INV_PROTO)) {
+		dprintf("Packet protocol %hi does not match %hi.%s\n",
+			ip->protocol, ipinfo->proto,
+			ipinfo->invflags&IPT_INV_PROTO ? " (INV)":"");
+		return false;
+	}
+
+	/* If we have a fragment rule but the packet is not a fragment
+	 * then we return zero */
+	if (FWINV((ipinfo->flags&IPT_F_FRAG) && !isfrag, IPT_INV_FRAG)) {
+		dprintf("Fragment rule but not fragment.%s\n",
+			ipinfo->invflags & IPT_INV_FRAG ? " (INV)" : "");
+		return false;
+	}
+
+	return true;
+}
 \end{lstlisting}
 
 \end{document}
