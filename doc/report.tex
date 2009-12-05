@@ -13,9 +13,9 @@
 \bibliographystyle{plain}
 
 
-\lstset{language=C,basicstyle=\small,showstringspaces=false}
+\lstset{language=C,basicstyle=\small,frame=single,showstringspaces=false,breaklines=true,breakatwhitespace=true}
 \begin{document}
-\title{\textbf{Project}:\\Netfilter}
+\title{\textbf{Project}:\\Netfilter/iptables}
 \author{Andrew Rimes - cs253030\\Kreshnik Mati - cse93062\\CSE4221 - F09}
 \date{December 8, 2009}
 
@@ -131,7 +131,7 @@ regardless of whether it is executing in the kernel or in user
 space. We will discuss \code{xt\_match} since we are concerned with
 the kernel\footnote{In some cases, structs have two names: one begining with xt and one
 without. This is a result of the unification of common code in
-\code{ip\_tables|, \code{ip6\_tables} and \code{arp\_tables} into \code{x\_tables} (hence xt) -- a table
+\code{ip\_tables}, \code{ip6\_tables} and \code{arp\_tables} into \code{x\_tables} (hence xt) -- a table
 structure that can handle all three protocols.}.
 
 \begin{lstlisting}
@@ -195,10 +195,7 @@ struct xt_match
 
         /* Return true or false: return FALSE and set *hotdrop = 1 to                                                                                       
            force immediate packet drop. */
-        /* Arguments changed since 2.6.9, as this must now handle                                                                                           
-           non-linear skb, using skb_header_pointer and                                                                                                     
-           skb_ip_make_writable. */
-        bool (*match)(const struct sk_buff *skb,
+       bool (*match)(const struct sk_buff *skb,
                       const struct xt_match_param *);
 
         /* Called when user tries to insert an entry of this type. */
@@ -300,9 +297,9 @@ struct xt_target
 };
 \end{lstlisting}
 
-\subsection{Execution}
+\section{Execution}
 
-\subsubsection{ip\_tables.h}
+\subsection{ip\_tables.h}
 
 For historical reasons, the IP specific \code{IPT\_MATCH\_ITERATE}
 macro calls the more general \code{XT\_MATCH\_ITERATE}. 
@@ -323,7 +320,9 @@ at \code{ipt\_entry}.
 	XT_ENTRY_ITERATE(struct ipt_entry, entries, size, fn, ## args)
 \end{lstlisting}
 
-\subsubsection{x\_tables.h}
+\subsection{x\_tables.h}
+
+\subsubsection{XT\_MATCH\_ITERATE}
 
 The \code{XT\_MATCH\_ITERATE} macro expands to a for loop that
 iterates through the list of \code{xt\_match} structures starting from
@@ -331,6 +330,7 @@ the \code{ipt\_entry}. With each step, the index into the rule is
 advanced by the length of the current \code{xp\_match} object and the
 associated match function is called. If the match functions returns 0, i.e. the packet
 matches, the iteration continues.
+
 
 \begin{lstlisting}
 /* fn returns 0 to continue iteration */
@@ -354,11 +354,14 @@ matches, the iteration continues.
 
 \end{lstlisting}
 
+
+\subsubsection{XT\_ENTRY\_ITERATE\_CONTINUE and XT\_ENTRY\_ITERATE}
+
 The \code{XT\_ENTRY\_ITERATE\_CONTINUE} and \code{XT\_ENTRY\_ITERATE}
 macros are used whenever it is necessary to walk through a table
 applying the function \code{fn} on each
-entry. \footnote{\code{XT\_ENTRY\_ITERATE} skips the application of
-  \code{fn} on the first entry}.
+entry\footnote{\code{XT\_ENTRY\_ITERATE} skips the application of
+  \code{fn} on the first entry.}.
 
 \begin{lstlisting}
 /* fn returns 0 to continue iteration */
@@ -386,14 +389,27 @@ entry. \footnote{\code{XT\_ENTRY\_ITERATE} skips the application of
 })
 \end{lstlisting}
 
-\subsubsection{ip\_tables.c}
+\subsection{ip\_tables.c}
 
-Below is the basic match function that is performed on every incoming
-packet (with some debugging statements omitted).
+\subsubsection{ip\_packet\_match}
+
+Below is the basic match function that is performed on the header of
+every incoming packet (with some debugging statements omitted). Lines
+12-17 apply the netmask from the rule to the source and destination
+IPs of the packet header \code{iphdr} and verifies that they
+correspond to the fields in \code{ipt\_ip}(\ref{ipt_ip}). It also
+verifies that the rule is checking source and destination
+addresses. Lines 19-29 verify that the incoming and outgoing interface
+of the packet correspond to the rule and that the rule checks for
+interfaces. Lines 31-35 verify the protocol matches and that the
+protocol is being checked. The final check on line 39 verifies that if
+the match applies to fragmented packets, that the packet is
+fragmented.
+
+
+\lstset{stepnumber=1,frame=single,numbers=left,numberstyle=\footnotesize}
 
 \begin{lstlisting}
-  /* Returns whether matches rule or not. */
-/* Performance critical - called for every packet */
 static inline bool
 ip_packet_match(const struct iphdr *ip,
 		const char *indev,
@@ -409,46 +425,56 @@ ip_packet_match(const struct iphdr *ip,
 		  IPT_INV_SRCIP)
 	    || FWINV((ip->daddr&ipinfo->dmsk.s_addr) != ipinfo->dst.s_addr,
 		     IPT_INV_DSTIP)) {
-		dprintf("Source or dest mismatch.\n");
 		return false;
 	}
 
 	ret = ifname_compare_aligned(indev, ipinfo->iniface, ipinfo->iniface_mask);
 
 	if (FWINV(ret != 0, IPT_INV_VIA_IN)) {
-		dprintf("VIA in mismatch (%s vs %s).%s\n",
-			indev, ipinfo->iniface,
-			ipinfo->invflags&IPT_INV_VIA_IN ?" (INV)":"");
 		return false;
 	}
 
 	ret = ifname_compare_aligned(outdev, ipinfo->outiface, ipinfo->outiface_mask);
 
 	if (FWINV(ret != 0, IPT_INV_VIA_OUT)) {
-		dprintf("VIA out mismatch (%s vs %s).%s\n",
-			outdev, ipinfo->outiface,
-			ipinfo->invflags&IPT_INV_VIA_OUT ?" (INV)":"");
 		return false;
 	}
 
 	/* Check specific protocol */
 	if (ipinfo->proto
 	    && FWINV(ip->protocol != ipinfo->proto, IPT_INV_PROTO)) {
-		dprintf("Packet protocol %hi does not match %hi.%s\n",
-			ip->protocol, ipinfo->proto,
-			ipinfo->invflags&IPT_INV_PROTO ? " (INV)":"");
 		return false;
 	}
 
 	/* If we have a fragment rule but the packet is not a fragment
 	 * then we return zero */
 	if (FWINV((ipinfo->flags&IPT_F_FRAG) && !isfrag, IPT_INV_FRAG)) {
-		dprintf("Fragment rule but not fragment.%s\n",
-			ipinfo->invflags & IPT_INV_FRAG ? " (INV)" : "");
 		return false;
 	}
 
 	return true;
+}
+\end{lstlisting}
+
+The \code{do\_match} function is the function called by the
+\code{XT\_MATCH\_ITERATOR} macro. It executes the match routine
+associted with each match entry in the rule, for example it would call
+\code{ip\_packet\_match} above for a basic IPv4 match.
+
+\lstset{stepnumber=0}
+\begin{lstlisting}
+ static inline bool
+do_match(struct ipt_entry_match *m, const struct sk_buff *skb,
+	 struct xt_match_param *par)
+{
+	par->match     = m->u.kernel.match;
+	par->matchinfo = m->data;
+
+	/* Stop iteration if it doesn't match */
+	if (!m->u.kernel.match->match(skb, par))
+		return true;
+	else
+		return false;
 }
 \end{lstlisting}
 
