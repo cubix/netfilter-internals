@@ -1,0 +1,205 @@
+
+
+\subsubsection{ipt\_ip}\label{ipt_ip}
+
+This struct specifies the minimal IP header information needed
+to to identify a packet. The \code{src} and \code{dst} fields identify
+the source and destination IP addresses, and \code{smsk} and
+\code{dmsk} identify the source and destination masks so that ranges
+of IP addresses can be specified in the rule, e.g. 192.168.0.0/24
+would match all IPs in the 192.168.0.0 subnet. The \code{initface} and
+\code{outiface} fields specify inbound and outbound interfaces, and
+\code{iniface\_mask} and \code{outiface\_mask} allow the user to specify several
+interfaces at once. The protocol number is stored in \code{proto},
+e.g. it would be set to 6 for TCP. The fields \code{flags} and
+\code{invflags} specified the IP header flags selected and not selected.
+
+\begin{lstlisting}
+
+struct ipt_ip {
+	/* Source and destination IP addr */
+	struct in_addr src, dst;
+        /* Mask for src and dest IP addr */
+        struct in_addr smsk, dmsk;
+        char iniface[IFNAMSIZ], outiface[IFNAMSIZ];
+        unsigned char iniface_mask[IFNAMSIZ], outiface_mask[IFNAMSIZ];
+
+        /* Protocol, 0 = ANY */
+        u_int16_t proto;
+
+        /* Flags word */
+        u_int8_t flags;
+        /* Inverse flags */
+        u_int8_t invflags;
+};
+
+\end{lstlisting}
+
+\subsubsection{ipt\_entry}
+
+This structure defines the starting point of each of the firewall
+rules, which are contained in arrays, i.e. tables.  The
+\code{nf\_cache} bitfield shows what parts of the packet this rule
+exams. The \code{target\_offset} field indicates the offset between
+the beginning of the current rule (contained in the structure) and
+where the \code{ipt\_entry\_target} begins. As indicated in the
+comments, the target offset is equal to the size of the
+\code{ipt\_entry} and the total number of matches. The
+\code{next\_offset} is the sum of the entry, matches, and target,
+which determines the position of the next rule's
+\code{ipt\_entry}. The target, described elsewhere, is executed when
+the rule matches. The \code{comefrom} field is a back pointer used by
+the kernel to track packet traversal. Obviously, \code{counters}
+stores packet and byte counts for the rule, i.e. how many have passed
+through. The final, variable length field \code{elems} is where matches,
+terminated by the target, are stored.
+
+\begin{lstlisting}
+struct ipt_entry
+{
+        struct ipt_ip ip;
+
+        /* Mark with fields that we care about. */
+        unsigned int nfcache;
+
+        /* Size of ipt_entry + matches */
+        u_int16_t target_offset;
+        /* Size of ipt_entry + matches + target */
+        u_int16_t next_offset;
+
+        /* Back pointer */
+        unsigned int comefrom;
+
+        /* Packet and byte counters. */
+        struct xt_counters counters;
+
+        /* The matches (if any), then the target. */
+        unsigned char elems[0];
+};
+\end{lstlisting}
+
+\subsection{x\_tables.h}
+
+\subsubsection{xt\_entry\_match (ipt\_entry\_match)}
+
+This provides a thin layer of abstraction so that code can be reused
+regardless of whether it is executing in the kernel or in user
+space. We will discuss \code{xt\_match} since we are concerned with
+the kernel\footnote{In some cases, structs have two names: one begining with xt and one
+without. This is a result of the unification of common code in
+\code{ip\_tables}, \code{ip6\_tables} and \code{arp\_tables} into \code{x\_tables} (hence xt) -- a table
+structure that can handle all three protocols.}.
+
+\begin{lstlisting}
+struct xt_entry_match
+{
+        union {
+                struct {
+                        __u16 match_size;
+
+			/* Used by userspace */
+                        char name[XT_FUNCTION_MAXNAMELEN-1];
+
+                        __u8 revision;
+                } user;
+		struct {
+                        __u16 match_size;
+
+                        /* Used inside the kernel */
+                        struct xt_match *match;
+                } kernel;
+
+                /* Total length */
+                __u16 match_size;
+        } u;
+
+        unsigned char data[0];
+};
+\end{lstlisting}
+
+\subsubsection{xt\_match}\label{xt_match}
+This structure represents a match entry in a rule (possibly one of
+many). It is fairly abstract and meant to represent all types of
+matches.
+
+The \code{list} is the standard doubly linked list used in
+the Linux kernel; this simple struct has two fields, \code{prev} and
+\code{nest}, and  is defined in \code{include/linux/list.h}. In this
+case it is used to link together consecutive matches in the rule
+[maybe?? guess]. The \code{name} field stores the name of the current
+callback function [?? verify]. The \code{revision} field stores the
+current revision number of the data structure so that if it changes in
+the future, backwards compatibility can be maintained.
+
+The \code{match} field is a pointer to the boolean function that
+determines whether or not the packet will be matched. The \code{skb}
+parameter is a pointer to a copy of the packet and
+\code{xt\_match\_param} is a pointer to additional parameters the
+match function can use to make the decision.
+
+The function pointed to by \code{checkentry} is called when the user
+attempts to add this type of match to the rule (whatever that type is). The struct
+\code{xt\_mtchk\_param} (\ref{xt_mtchk_param}) is passed to make that decision. 
+
+\begin{lstlisting}
+struct xt_match
+{
+        struct list_head list;
+
+        const char name[XT_FUNCTION_MAXNAMELEN-1];
+        u_int8_t revision;
+
+        /* Return true or false: return FALSE and set *hotdrop = 1 to                                                                                       
+           force immediate packet drop. */
+       bool (*match)(const struct sk_buff *skb,
+                      const struct xt_match_param *);
+
+        /* Called when user tries to insert an entry of this type. */
+        bool (*checkentry)(const struct xt_mtchk_param *);
+
+        /* Called when entry of this type deleted. */
+        void (*destroy)(const struct xt_mtdtor_param *);
+
+        /* Called when userspace align differs from kernel space one */
+        void (*compat_from_user)(void *dst, void *src);
+        int (*compat_to_user)(void __user *dst, void *src);
+
+        /* Set this to THIS_MODULE if you are a module, otherwise NULL */
+        struct module *me;
+
+        /* Free to use by each match */
+        unsigned long data;
+
+        const char *table;
+        unsigned int matchsize;
+        unsigned int compatsize;
+        unsigned int hooks;
+        unsigned short proto;
+
+        unsigned short family;
+};
+        
+\end{lstlisting}
+
+\subsubsection{xt\_mtchk\_param}\label{xt_mtchk_param}
+
+This struct is passed to a match extesion's \code{checkentry}
+function. The name of the table is in \code{table}. Protocol family
+information, (e.g. \code{ipt\_ip} (\ref{ipt_ip}) for IPv4) is stored
+in \code{entryinfo}.  The pointer \code{match} is the \code{xt\_match}
+through which this function was invoked. The protocol family number is
+stored in \code{family}.  Which hooks the new rule is reachable from
+is stored in \code{hook\_mask} where each hook is defined by a
+bit. Any additional information is stored in \code{matchinfo}.
+
+\begin{lstlisting}
+struct xt_mtchk_param {
+        const char *table;
+        const void *entryinfo;
+	const struct xt_match *match;
+        void *matchinfo;
+	unsigned int hook_mask;
+	u_int8_t family;
+};
+\end{lstlisting}
+
