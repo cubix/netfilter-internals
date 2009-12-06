@@ -32,6 +32,14 @@
 
 \section{Overview}
 
+
+\begin{figure}
+\centering
+\includegraphics[totalheight=0.40\textheight]{images/hooks.png}
+\caption{The packet is passed into \code{iptables}' hooks at certain points
+  before and after routing.}\label{fig:hooks}
+\end{figure}
+
 \section{Data Structures}
   
 
@@ -296,6 +304,14 @@ struct xt_target
         u_int8_t revision;
 };
 \end{lstlisting}
+
+\subsection{Diagrams}
+
+\begin{figure}[H]
+\centering
+\includegraphics[totalheight=0.45\textheight]{images/table1.png}
+\caption{The structure of an \code{iptables} IPv4 table.}\label{fig:table1}
+\end{figure}
 
 \section{Execution}
 
