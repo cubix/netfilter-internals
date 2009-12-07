@@ -1,5 +1,99 @@
 
+\subsection{registration}\label{REGISTERING}
+To be able to register a hook, the \verb|nf_register_hook|takes a struct of type \verb|nf_hook_ops, which is a structure hook to be added to the list of hooks and its options.
 
-\subsection{Registration}\label{REGISTERING}
+From Victor Castro's description: ``The first thing we see in the struct is the list_head struct, which is used to keep a linked list of hooks, but it's not necessary for our firewall. The \verb{nf_hookfn*} struct member is the name of the hook function that we define. The pf integer member is used to identify the protocol family; it's \verb{PF_INET} for IPv4. The next field is the hooknum int, and this is for the hook we want to use. The last field is the priority int. The priorities are specified in \verb|linux/netfilter_ipv4.h|, but for our situation we want \verb{NF_IP_PRI_FIRST}.'' 
+\cite{netfilter-firewall}
 
-REGISTERING SUBSECTION
+\begin{lstlisting}
+struct nf_hook_ops
+{
+	struct list_head list;
+
+	/* User fills in from here down. */
+	nf_hookfn	*hook;
+	struct module	*owner;
+	void		*priv;
+	u_int8_t	pf;
+	unsigned int	hooknum;
+	/* Hooks are ordered in ascending priority. */
+	int		priority;
+};
+\end{lstlisting}
+
+It then attempts to add the hook passed, by first creating a nf_hook_mutex object, locking it until it has added the hook to the doubly linked list, making the current hook the previous one and this hook the current hook. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules.
+
+\begin{lstlisting}
+int nf_register_hook(struct nf_hook_ops *reg)
+{
+	struct nf_hook_ops *elem;
+	int err;
+
+	err = mutex_lock_interruptible(&nf_hook_mutex);
+	if (err < 0)
+		return err;
+	list_for_each_entry(elem, &nf_hooks[reg->pf][reg->hooknum], list) {
+		if (reg->priority < elem->priority)
+			break;
+	}
+	list_add_rcu(&reg->list, elem->list.prev);
+	mutex_unlock(&nf_hook_mutex);
+	return 0;
+}
+EXPORT_SYMBOL(nf_register_hook);
+\end{lstlisting}
+
+The functionality to add several hooks at once also is available by letting the user provide an array of \verb|nf_hook_ops| and loop-add them to the linked list.
+
+\begin{lstlisting}
+int nf_register_hooks(struct nf_hook_ops *reg, unsigned int n)
+{
+	unsigned int i;
+	int err = 0;
+
+	for (i = 0; i < n; i++) {
+		err = nf_register_hook(&reg[i]);
+		if (err)
+			goto err;
+	}
+	return err;
+
+err:
+	if (i > 0)
+		nf_unregister_hooks(reg, i);
+	return err;
+}
+\end{lstlisting}
+
+The hooks can also be removed from the linked list in similar fashion to the way they are added.
+
+\begin{lstlisting}
+void nf_unregister_hook(struct nf_hook_ops *reg)
+{
+	mutex_lock(&nf_hook_mutex);
+	list_del_rcu(&reg->list);
+	mutex_unlock(&nf_hook_mutex);
+
+	synchronize_net();
+}
+EXPORT_SYMBOL(nf_unregister_hook);
+
+int nf_register_hooks(struct nf_hook_ops *reg, unsigned int n)
+{
+	unsigned int i;
+	int err = 0;
+
+	for (i = 0; i < n; i++) {
+		err = nf_register_hook(&reg[i]);
+		if (err)
+			goto err;
+	}
+	return err;
+
+err:
+	if (i > 0)
+		nf_unregister_hooks(reg, i);
+	return err;
+}
+EXPORT_SYMBOL(nf_register_hooks);
+\end{lstlisting}
