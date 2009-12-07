@@ -308,7 +308,7 @@ struct xt_target
 
 \begin{figure}[H]
 \centering
-\includegraphics[totalheight=0.45\textheight]{images/table1.png}
+\includegraphics[totalheight=0.40\textheight]{images/table1.png}
 \caption{The structure of an \code{iptables} IPv4 table.}\label{fig:table1}
 \end{figure}
 
@@ -832,8 +832,17 @@ Global conntrack entities in network namespace. Tracks global entities like poin
 };
 \end{lstlisting}
 
+\subsubsection{Hash and Expect Table Diagrams}
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[totalheight=0.45\textheight]{images/hash_expect_tables.png}
+\caption{The structure of the hash tables that store active connections (\code{hash} pointer) and expected connections (\code{expect\_hash}).}\label{fig:hash}
+\end{figure}
+
 \section{Registration}
 
-\input{report_registration.tex}
+%\input{report_registration.tex}
 
 \end{document}
