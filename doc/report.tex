@@ -7,7 +7,7 @@
 \usepackage{amsthm}
 \usepackage[pdftex]{graphicx}
 \usepackage{listings}
-\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\texttt{{#1}}}
 \newcommand{\figref}[1]{(fig. \ref{#1})}
 %\bibliographystyle{prsty} % Choose Phys. Rev. stylle for bibliography
 \bibliographystyle{plain}
@@ -32,12 +32,10 @@
 
 \section{Overview}
 
-An IP table is made of multiple chains; a chain is a list of
-rules. Each rule consists of one or more matches, terminated by a
-target. The target is the action performed when a rule is entirely
-matched. The userspace tool \code{iptables} is used to manipulate the IP
-tables. The data structures are designed such that they can be used in
-both user and kernel mode.
+An IP table is made of multiple chains; a chain is a list of rules associated 
+with one or more hooks. Each rule consists of one or more matches, 
+terminated by a target. The target is the action performed when a rule
+is entirely matched. The userspace tool \code{iptables} is used to manipulate the IP tables. The data structures are designed such that they can be used in both user and kernel mode.
 
 
 \begin{figure}
@@ -47,7 +45,7 @@ both user and kernel mode.
   before and after routing.}\label{fig:hooks}
 \end{figure}
 
-\section{Data Structures}
+\section{Table Data Structures}
   
 
 \subsection{ip\_tables.h}
@@ -643,6 +641,195 @@ ipt_do_table(struct sk_buff *skb,
 
 #undef tb_comefrom
 }
+\end{lstlisting}
+
+\section{ConnTrack Data Structures}
+
+\subsection{nf\_conntrack\_tuple.h}
+
+\subsubsection{nf\_conntrack\_tuple}
+
+The \code{nf\_conntrack\_tuple} structure is used to uniquely identify
+a connection that has passed through the firewall and whose state is
+being tracked. The \code{src} field is the source address, which is
+considered manipulable (useful for NAT), unlike the remaining fields,
+which are immutable. The field \code{u3} represents the destination
+address in either IPv4 and IPv6, depending on what type of packet is
+being tracked. The union \code{u} with \code{tcp}, \code{udp},
+\code{icmp}, etc., track layer 4 protocol state fields for the
+destination, such as the port number for TCP. The \code{all} field is
+used when multiple fields need to be accessed at once, e.g. for
+hashing of the tuple. Finally, \code{protonum} stores the protocol in
+use, (TCP or UDP, etc.) and \code{dir} stores the direction.
+
+\begin{lstlisting}
+struct nf_conntrack_tuple
+{
+	struct nf_conntrack_man src;
+
+	struct {
+		union nf_inet_addr u3;
+		union {
+			/* Add other protocols here. */
+			__be16 all;
+
+			struct {
+				__be16 port;
+			} tcp;
+			struct {
+				__be16 port;
+			} udp;
+			struct {
+				u_int8_t type, code;
+			} icmp;
+			struct {
+				__be16 port;
+			} dccp;
+			struct {
+				__be16 port;
+			} sctp;
+			struct {
+				__be16 key;
+			} gre;
+		} u;
+
+		/* The protocol. */
+		u_int8_t protonum;
+
+		/* The direction (for tuplehash) */
+		u_int8_t dir;
+	} dst;
+};
+\end{lstlisting}
+
+\subsubsection{nf\_conntrack\_tuple\_hash}
+
+\begin{lstlisting}
+  /* Connections have two entries in the hash table: one for each way */
+struct nf_conntrack_tuple_hash {
+	struct hlist_nulls_node hnnode;
+	struct nf_conntrack_tuple tuple;
+};
+\end{lstlisting}
+
+\subsubsection{ip\_conntrack\_old\_tuple}
+
+This is an old IPv4 specific format for the tuple. It is kept for
+historical reasons since it has been exposed to userspace.
+
+\begin{lstlisting}
+/* This is exposed to userspace, so remains frozen in time. */
+struct ip_conntrack_old_tuple
+{
+	struct {
+		__be32 ip;
+		union {
+			__u16 all;
+		} u;
+	} src;
+
+	struct {
+		__be32 ip;
+		union {
+			__u16 all;
+		} u;
+
+		/* The protocol. */
+		__u16 protonum;
+	} dst;
+};
+\end{lstlisting}
+
+\subsubsection{xt\_conntrack\_info}
+
+\begin{lstlisting}
+struct xt_conntrack_info
+{
+	unsigned int statemask, statusmask;
+
+	struct ip_conntrack_old_tuple tuple[IP_CT_DIR_MAX];
+	struct in_addr sipmsk[IP_CT_DIR_MAX], dipmsk[IP_CT_DIR_MAX];
+
+	unsigned long expires_min, expires_max;
+
+	/* Flags word */
+	__u8 flags;
+	/* Inverse flags */
+	__u8 invflags;
+};
+\end{lstlisting}
+
+
+
+\subsubsection{nf\_conn}
+
+The \code{ct\_general} is an atomic counter that tracks the usage of the \code{nf\_conn} structre.
+
+\begin{lstlisting}
+  struct nf_conn {
+	/* Usage count in here is 1 for hash table/destruct timer, 1 per skb,
+           plus 1 for any connection(s) we are `master' for */
+	struct nf_conntrack ct_general;
+
+	spinlock_t lock;
+
+	/* These are my tuples; original and reply */
+	struct nf_conntrack_tuple_hash tuplehash[IP_CT_DIR_MAX];
+
+	/* Have we seen traffic both ways yet? (bitset) */
+	unsigned long status;
+
+	/* If we were expected by an expectation, this will be it */
+	struct nf_conn *master;
+
+	/* Timer function; drops refcnt when it goes off. */
+	struct timer_list timeout;
+
+#if defined(CONFIG_NF_CONNTRACK_MARK)
+	u_int32_t mark;
+#endif
+
+#ifdef CONFIG_NF_CONNTRACK_SECMARK
+	u_int32_t secmark;
+#endif
+
+	/* Storage reserved for other modules: */
+	union nf_conntrack_proto proto;
+
+	/* Extensions */
+	struct nf_ct_ext *ext;
+#ifdef CONFIG_NET_NS
+	struct net *ct_net;
+#endif
+};
+\end{lstlisting}
+
+\subsubsection{conntrack.h/netns\_ct}
+
+Global conntrack entities in network namespace. Tracks global entities like pointer to the expect\_hash hash table for expected packets.
+
+\begin{lstlisting}
+  struct netns_ct {
+	atomic_t		count;
+	unsigned int		expect_count;
+	struct hlist_nulls_head	*hash;
+	struct hlist_head	*expect_hash;
+	struct hlist_nulls_head	unconfirmed;
+	struct hlist_nulls_head	dying;
+	struct ip_conntrack_stat *stat;
+	int			sysctl_events;
+	unsigned int		sysctl_events_retry_timeout;
+	int			sysctl_acct;
+	int			sysctl_checksum;
+	unsigned int		sysctl_log_invalid; /* Log invalid packets */
+#ifdef CONFIG_SYSCTL
+	struct ctl_table_header	*sysctl_header;
+	struct ctl_table_header	*acct_sysctl_header;
+	struct ctl_table_header	*event_sysctl_header;
+#endif
+	int			hash_vmalloc;
+	int			expect_vmalloc;
+};
 \end{lstlisting}
 
 \section{Registration}
