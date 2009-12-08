@@ -9,6 +9,7 @@
 \usepackage{listings}
 \newcommand{\code}[1]{\texttt{{#1}}}
 \newcommand{\figref}[1]{(fig. \ref{#1})}
+\newcommand{\cref}[1]{[\ref{#1}]}
 %\bibliographystyle{prsty} % Choose Phys. Rev. stylle for bibliography
 \bibliographystyle{plain}
 
@@ -647,7 +648,7 @@ ipt_do_table(struct sk_buff *skb,
 
 \subsection{nf\_conntrack\_tuple.h}
 
-\subsubsection{nf\_conntrack\_tuple}
+\subsubsection{nf\_conntrack\_tuple}\label{nf_conntrack_tuple}
 
 The \code{nf\_conntrack\_tuple} structure is used to uniquely identify
 a connection that has passed through the firewall and whose state is
@@ -702,7 +703,7 @@ struct nf_conntrack_tuple
 };
 \end{lstlisting}
 
-\subsubsection{nf\_conntrack\_tuple\_hash}
+\subsubsection{nf\_conntrack\_tuple\_hash}\label{nf_conntrack_tuple_hash}
 
 \begin{lstlisting}
   /* Connections have two entries in the hash table: one for each way */
@@ -806,7 +807,7 @@ The \code{ct\_general} is an atomic counter that tracks the usage of the \code{n
 
 \subsubsection{conntrack.h/netns\_ct}
 
-Global conntrack entities in network namespace. Tracks global entities like pointer to the expect\_hash hash table for expected packets.
+This points to global connection tracking entities like the \verb|expect_hash| hash table for expected packets. The atomic \verb|count| refers to the number of active connections being tracked through the firewall, and \verb|hash| points to the hash table for active connections. The \verb|uncomfirmed| table is where packet tuples are tempoariliy stashed before packets they leave the firewall.
 
 \begin{lstlisting}
   struct netns_ct {
@@ -840,6 +841,11 @@ Global conntrack entities in network namespace. Tracks global entities like poin
 \includegraphics[totalheight=0.45\textheight]{images/hash_expect_tables.png}
 \caption{The structure of the hash tables that store active connections (\code{hash} pointer) and expected connections (\code{expect\_hash}).}\label{fig:hash}
 \end{figure}
+
+\subsection{Execution}
+
+If a packet arrives on an interface or is sent by a local process, it triggers the \verb|PRE_ROUTING| or \verb|LOCAL_OUT| hooks respectively. Assuming it matches one of the rules with a filter target, its tuple (in \verb|nf_conntrack_tuple_hash|\cref{nf_conntrack_tuple_hash}) is added to the \verb|unconfirmed| table in the \verb|netns_ns| structure. The packet is then passed on for routing. However, there is some chance that it may not emerge, for instance, if there is no valid route. In this scenario, the tuple will eventually time-out and be culled from \verb|unconfirmed|. On the other hand, if it is routed successfully the \verb|POST_ROUTING| hook is called and the tuple is transferred from \verb|unconfirmed| to \verb|hash_expect|. At this point it can be assumed the packet will leave the host. 
+
 
 \section{Registration}
 
