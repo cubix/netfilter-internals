@@ -1,7 +1,7 @@
 % hook registration section
 
 \subsection{hook_list_object}\label{Hook List Object}
-The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality.
+The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality. A linked list is a perfect data structure in this case since there is no specific element indexing, but rather traversing through the list and calling all the available hooks.
 
 \begin{lstlisting}
 extern struct list_head nf_hooks[NFPROTO_NUMPROTO][NF_MAX_HOOKS];
@@ -81,3 +81,14 @@ The hooks can also be removed from the linked list in similar fashion to the way
 void nf_unregister_hook(struct nf_hook_ops *reg);
 void nf_unregister_hooks(struct nf_hook_ops *reg);
 \end{lstlisting}
+
+\subsection{hooks_processing}\label{Hooks Processing}
+Finally there exist facilities inside \verb|netfilter.h| that allow the kernel to process the hooks that are registered at the various steps. Many are in the form of macros that add certain small functionality before the function \verb|nf_hook_slow| is called. This function iterates through all the hooks registered for the current step, executes them and proceeds according to the result returned by the hook.
+
+\begin{lstlisting}
+int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
+		 struct net_device *indev, struct net_device *outdev,
+		 int (*okfn)(struct sk_buff *), int thresh);
+\end{lstlisting}
+
+
