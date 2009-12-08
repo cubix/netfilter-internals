@@ -6,9 +6,20 @@
 \usepackage{amssymb,amsmath} 
 \usepackage{amsthm}
 \usepackage[pdftex]{graphicx}
+%\usepackage{bookmarks=true}{hyperref}
 \usepackage{listings}
+\usepackage[pdftitle={Netfilter/iptables},pdfpagemode=UseOutlines,
+colorlinks=false,pdfauthor={Andrew Rimes and Kreshnik Mati},
+bookmarks=true,pdftex=true,linkbordercolor={1 1 1}]{hyperref} 
+\pdfpagewidth=21.6cm
+\pdfpageheight=27.9cm
+\usepackage{times} %use PS fonts for PDF
+\usepackage{courier}
+\usepackage{helvet}
+\usepackage{cmap} % searchable PDF
+
 \newcommand{\code}[1]{\texttt{{#1}}}
-\newcommand{\figref}[1]{(fig. \ref{#1})}
+\newcommand{\figref}[1]{[fig. \ref{#1}]}
 \newcommand{\cref}[1]{[\ref{#1}]}
 %\bibliographystyle{prsty} % Choose Phys. Rev. stylle for bibliography
 \bibliographystyle{plain}
@@ -30,6 +41,7 @@
 
 
 \newpage
+\raggedright
 
 \section{Overview}
 
@@ -177,9 +189,8 @@ matches.
 The \code{list} is the standard doubly linked list used in
 the Linux kernel; this simple struct has two fields, \code{prev} and
 \code{nest}, and  is defined in \code{include/linux/list.h}. In this
-case it is used to link together consecutive matches in the rule
-[maybe?? guess]. The \code{name} field stores the name of the current
-callback function [?? verify]. The \code{revision} field stores the
+case it is used to link together consecutive matches in the rule. The \code{name} field stores the name of the current
+table. The \code{revision} field stores the
 current revision number of the data structure so that if it changes in
 the future, backwards compatibility can be maintained.
 
@@ -344,8 +355,8 @@ The \code{XT\_MATCH\_ITERATE} macro expands to a for loop that
 iterates through the list of \code{xt\_match} structures starting from
 the \code{ipt\_entry}. With each step, the index into the rule is
 advanced by the length of the current \code{xp\_match} object and the
-associated match function is called. If the match functions returns 0, i.e. the packet
-matches, the iteration continues.
+associated match function is called. If the match functions returns 0,
+i.e. the packet matches, the iteration continues.
 
 
 \begin{lstlisting}
@@ -762,9 +773,18 @@ struct xt_conntrack_info
 
 
 
-\subsubsection{nf\_conn}
+\subsubsection{nf\_conn}\label{nf_conn}
 
-The \code{ct\_general} is an atomic counter that tracks the usage of the \code{nf\_conn} structre.
+The \code{ct\_general} is an atomic counter that tracks the usage of
+the \code{nf\_conn} structure. The spinlock is used to protect the
+connection on SMP systems. The \verb|tuplehash| is a two element array
+that contains the tuple for the initiating side of the connection
+(index \verb|IP_CT_DIR_ORIGINAL|) and a second tuple for the
+reply packet (index \verb|IP_CT_DIR_ORIGINAL|). The reply tuple
+can be easily calculated by inversing fields. For example in a TCP
+connection, to generate the reply tuple, the source and destination IP
+addresses of the initial packet are inversed, as are the source and
+destination port numbers.
 
 \begin{lstlisting}
   struct nf_conn {
@@ -807,7 +827,13 @@ The \code{ct\_general} is an atomic counter that tracks the usage of the \code{n
 
 \subsubsection{conntrack.h/netns\_ct}
 
-This points to global connection tracking entities like the \verb|expect_hash| hash table for expected packets. The atomic \verb|count| refers to the number of active connections being tracked through the firewall, and \verb|hash| points to the hash table for active connections. The \verb|uncomfirmed| table is where packet tuples are tempoariliy stashed before packets they leave the firewall.
+This points to global connection tracking entities like the
+\verb|expect_hash| hash table for expected packets. The atomic
+\verb|count| refers to the number of active connections being tracked
+through the firewall, and \verb|hash| points to the hash table for
+active connections. The \verb|uncomfirmed| table is where tuples are
+tempoariliy stashed before the corresponding packet leaves the
+firewall.
 
 \begin{lstlisting}
   struct netns_ct {
@@ -837,18 +863,51 @@ This points to global connection tracking entities like the \verb|expect_hash| h
 
 
 \begin{figure}[H]
-\centering
-\includegraphics[totalheight=0.45\textheight]{images/hash_expect_tables.png}
-\caption{The structure of the hash tables that store active connections (\code{hash} pointer) and expected connections (\code{expect\_hash}).}\label{fig:hash}
+  \centering
+  \includegraphics[totalheight=0.45\textheight]{images/hash_expect_tables.png}
+  \caption{The structure of the hash tables that store active
+    connections (\code{hash} pointer) and expected connections
+    (\code{expect\_hash}).}\label{fig:hash}
 \end{figure}
 
 \subsection{Execution}
 
-If a packet arrives on an interface or is sent by a local process, it triggers the \verb|PRE_ROUTING| or \verb|LOCAL_OUT| hooks respectively. Assuming it matches one of the rules with a filter target, its tuple (in \verb|nf_conntrack_tuple_hash|\cref{nf_conntrack_tuple_hash}) is added to the \verb|unconfirmed| table in the \verb|netns_ns| structure. The packet is then passed on for routing. However, there is some chance that it may not emerge, for instance, if there is no valid route. In this scenario, the tuple will eventually time-out and be culled from \verb|unconfirmed|. On the other hand, if it is routed successfully the \verb|POST_ROUTING| hook is called and the tuple is transferred from \verb|unconfirmed| to \verb|hash_expect|. At this point it can be assumed the packet will leave the host. 
+\subsubsection{Initiating a new connection}
 
+When a packet arrives on an interface or is sent by a local process,
+it triggers the \verb|PRE_ROUTING| or \verb|LOCAL_OUT| hooks
+respectively\figref{fig:hooks}. The \verb|conntrack| module is always called first
+because it is registered with the highest priority. The packet's tuple
+is calculated and looked-up in the \verb|hash| \figref{fig:hash} table
+for existing connections and \verb|expect_hash| for expected
+connections (explained in \ref{reply}). If the packet is the
+initiating packet of a new connection (e.g. a SYN packet for a TCP
+connection) it will not be found. Instead, its tuple (in
+\verb|nf_conntrack_tuple_hash| \cref{nf_conntrack_tuple_hash}) and reverse tuple(\ref{nf_conn}) are
+added to the \verb|unconfirmed| table in the \verb|netns_ns|
+structure. The packet is then passed on for routing. However, there is
+some chance that the packet may not emerge, for instance, if there is no valid
+route or it is dropped by a subsequent
+rule\cite{netfilter-internals}. In this scenario, the tuples will
+eventually time-out and be culled from \verb|unconfirmed|. On the
+other hand, if it is routed successfully the \verb|POST_ROUTING| hook
+is called. The initiating tuple the reverse tuple is transferred from \verb|unconfirmed| to
+\verb|hash_expect|. At this point it can be assumed the packet will
+leave the host.
+
+\subsubsection{Reply to new connection}\label{reply}
+When the reply packet returns to the firewall, it again triggers the
+\verb|PRE_ROUTING| hook. This time the reply tuple is found in
+\verb|expect_hash| and then transferred to \verb|hash| for established
+connections. Any subsequent packets related to this connection will
+found immediately in the \verb|hash| table. The state of any given
+packet is made available to the rest of the kernel through the socket buffer struct
+\verb|sk_buff.nfct|.
 
 \section{Registration}
 
 %\input{report_registration.tex}
+
+\bibliography{research}
 
 \end{document}
