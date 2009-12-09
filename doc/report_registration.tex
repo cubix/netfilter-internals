@@ -1,6 +1,6 @@
 % hook registration section
 
-\subsection{hook_object}\label{Hook Object}
+\subsection{Hook Object}\label{hook_object}
 To be able to register a hook, the \verb|nf_register_hook|takes a struct of type \verb|nf_hook_ops, which is a structure hook to be added to the list of hooks and its options.
 From Victor Castro's description: ``The first thing we see in the struct is the list_head struct, which is used to keep a linked list of hooks, but it's not necessary for our firewall. The \verb{nf_hookfn*} struct member is the name of the hook function that we define. The pf integer member is used to identify the protocol family; it's \verb{PF_INET} for IPv4. The next field is the hooknum int, and this is for the hook we want to use. The last field is the priority int. The priorities are specified in \verb|linux/netfilter_ipv4.h|, but for our situation we want \verb{NF_IP_PRI_FIRST}.''\cite{netfilter-firewall}
 The list_head struct inside of the nf_hook_ops will be covered in more detail in section \ref{hook_add} and why it's needed.
@@ -22,7 +22,7 @@ struct nf_hook_ops
 };
 \end{lstlisting}
 
-\subsection{hook_list_object}\label{Hook List Object}
+\subsection{Hook List Object}\label{hook_list_object}
 The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality. A linked list is a perfect data structure in this case since there is no specific element indexing, but rather traversing through the list and calling all the available hooks. There are 6 hooks lists. One for each of \verb|NF_INET_PRE_ROUTING| , \verb|NF_INET_LOCAL_IN|, \verb|NF_INET_FORWARD|, \verb|NF_INET_LOCAL_OUT|, \verb|NF_INET_POST_ROUTING|. By breaking the lists into one for each hook spot, on every spot where the hooks need to be called only the hooks responsible for that spot are iterated.
 
 \begin{lstlisting}
@@ -52,7 +52,7 @@ int nf_register_hook(struct nf_hook_ops *reg)
 EXPORT_SYMBOL(nf_register_hook);
 \end{lstlisting}
 
-\subsection{hook_list_adding}\label{Hook List Adding}
+\subsection{Hook List Adding}\label{hook_list_adding}
 The functionality to add several hooks at once also is available by letting the user provide an array of \verb|nf_hook_ops| and loop-add them to the linked list.
 
 \begin{lstlisting}
@@ -75,7 +75,7 @@ err:
 }
 \end{lstlisting}
 
-\subsection{hook_removing}\label{Hook And Hook-List Removing}
+\subsection{Hook And Hook-List Removing}\label{hook_removing}
 The hooks can also be removed from the linked list in similar fashion to the way they are added.
 
 \begin{lstlisting}
@@ -83,7 +83,7 @@ void nf_unregister_hook(struct nf_hook_ops *reg);
 void nf_unregister_hooks(struct nf_hook_ops *reg);
 \end{lstlisting}
 
-\subsection{hooks_processing}\label{Hooks Processing}
+\subsection{Hooks Processing}\label{hooks_processing}
 Finally there exist facilities inside \verb|netfilter.h| that allow the kernel to process the hooks that are registered at the various steps. Many are in the form of macros that add certain small functionality before the function \verb|nf_hook_slow| is called. This function iterates through all the hooks registered for the current step, executes them and proceeds according to the result returned by the hook.
 
 \begin{lstlisting}
