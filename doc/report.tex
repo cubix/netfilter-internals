@@ -3,6 +3,7 @@
 \usepackage{enumerate}
 \usepackage{multicol}
 \usepackage{verbatim}
+\usepackage{float}
 \usepackage{amssymb,amsmath} 
 \usepackage{amsthm}
 \usepackage[pdftex]{graphicx}
@@ -45,10 +46,12 @@ bookmarks=true,pdftex=true,linkbordercolor={1 1 1}]{hyperref}
 
 \section{Overview}
 
-An IP table is made of multiple chains; a chain is a list of rules associated 
-with one or more hooks. Each rule consists of one or more matches, 
-terminated by a target. The target is the action performed when a rule
-is entirely matched. The userspace tool \code{iptables} is used to manipulate the IP tables. The data structures are designed such that they can be used in both user and kernel mode.
+An IP table is made of multiple chains; a chain is a list of rules
+associated with one or more hooks. Each rule consists of one or more
+matches, terminated by a target. The target is the action performed
+when a rule is entirely matched. The userspace tool \code{iptables} is
+used to manipulate the IP tables. The data structures are designed
+such that they can be used in both user and kernel mode.
 
 
 \begin{figure}
@@ -859,7 +862,94 @@ firewall.
 };
 \end{lstlisting}
 
+\subsubsection{nf\_conntrack\_expect.h/nf\_conntrack\_expect}
+
+\begin{lstlisting}
+  struct nf_conntrack_expect
+{
+	/* Conntrack expectation list member */
+	struct hlist_node lnode;
+
+	/* Hash member */
+	struct hlist_node hnode;
+
+	/* We expect this tuple, with the following mask */
+	struct nf_conntrack_tuple tuple;
+	struct nf_conntrack_tuple_mask mask;
+
+	/* Function to call after setup and insertion */
+	void (*expectfn)(struct nf_conn *new,
+			 struct nf_conntrack_expect *this);
+
+	/* Helper to assign to new connection */
+	struct nf_conntrack_helper *helper;
+
+	/* The conntrack of the master connection */
+	struct nf_conn *master;
+
+	/* Timer function; deletes the expectation. */
+	struct timer_list timeout;
+
+	/* Usage count. */
+	atomic_t use;
+
+	/* Flags */
+	unsigned int flags;
+
+	/* Expectation class */
+	unsigned int class;
+
+#ifdef CONFIG_NF_NAT_NEEDED
+	__be32 saved_ip;
+	/* This is the original per-proto part, used to map the
+	 * expected connection the way the recipient expects. */
+	union nf_conntrack_man_proto saved_proto;
+	/* Direction relative to the master connection. */
+	enum ip_conntrack_dir dir;
+#endif
+
+	struct rcu_head rcu;
+};
+\end{lstlisting}
+
+
 \subsubsection{Hash and Expect Table Diagrams}
+
+The hash table shown in diagram \figref{fig:hash} is used to store
+tuples for established connections. Each entry points to a list of tuples
+with the same hash key. New tuples are inserted at the head.
+
+The efficiency of this structure is extremely important since a packet's tuple must be
+looked up everytime it arrives on an interface or sent from an
+internal process. Space must also be considered because the table can
+grow quite large on a busy firewall handling thousands of connections
+concurrently.
+
+One example of space saving was the use of
+\verb|hlist_node| and \verb|hlist_head| over the more general \verb|list_head|. The
+latter has a pointer to the tail of the list, which means the tail can
+be reached in $O(N)$ time. However, since this is not needed for tuple
+look-ups\footnote{Tuple collisions are inserted in front -- there is
+  no reason to jump to the tail.}, the extra pointer in
+\verb|list_head| is not needed. The \verb|hlist_head| contains only a
+\verb|first| pointer field. Although, this creates another
+complication: when accessing the previous node (e.g. for insertion) it
+is no longer known whether it is a \verb|hlist_node.next| or a
+\verb|hlist_head.first|. To get around this, the \verb|pprev| field is
+a pointer to a pointer -- a pointer to whatever field is pointing to
+the current node. Thus, for insertions and deletions, the previous node/head can be
+updated regardless of type.
+
+To access the containing structure of an \verb|hlist_node|, in this
+case an \verb|nf_conntrack_tuple_hash|, the macro
+\verb|container_of| is used to cleverly calculate
+the address containing structure address from the member address.
+
+\begin{lstlisting}
+  #define container_of(ptr, type, member) ({			\
+	const typeof( ((type *)0)->member ) *__mptr = (ptr);	\
+	(type *)( (char *)__mptr - offsetof(type,member) );})
+\end{lstlisting}
 
 
 \begin{figure}[H]
@@ -871,6 +961,24 @@ firewall.
 \end{figure}
 
 \subsection{Execution}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.90\textheight]{images/conntrack_flow1.png}
+  \caption{Part 1. New connection packet P enters the firewall.}\label{fig:conntrack_flow1}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.90\textheight]{images/conntrack_flow2.png}
+  \caption{Part 2. Packet P is confirmed and leaves the firewall.}\label{fig:conntrack_flow2}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.90\textheight]{images/conntrack_flow3.png}
+  \caption{Part 3. Reply packet Pr returns and the connection is established.}\label{fig:conntrack_flow3}
+\end{figure}
 
 \subsubsection{Initiating a new connection}
 
