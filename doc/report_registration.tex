@@ -1,15 +1,9 @@
 % hook registration section
 
-\subsection{hook_list_object}\label{Hook List Object}
-The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality. A linked list is a perfect data structure in this case since there is no specific element indexing, but rather traversing through the list and calling all the available hooks.
-
-\begin{lstlisting}
-extern struct list_head nf_hooks[NFPROTO_NUMPROTO][NF_MAX_HOOKS];
-\end{lstlisting}
-
 \subsection{hook_object}\label{Hook Object}
 To be able to register a hook, the \verb|nf_register_hook|takes a struct of type \verb|nf_hook_ops, which is a structure hook to be added to the list of hooks and its options.
-From Victor Castro's description: ``The first thing we see in the struct is the list_head struct, which is used to keep a linked list of hooks, but it's not necessary for our firewall. The \verb{nf_hookfn*} struct member is the name of the hook function that we define. The pf integer member is used to identify the protocol family; it's \verb{PF_INET} for IPv4. The next field is the hooknum int, and this is for the hook we want to use. The last field is the priority int. The priorities are specified in \verb|linux/netfilter_ipv4.h|, but for our situation we want \verb{NF_IP_PRI_FIRST}.'' 
+From Victor Castro's description: ``The first thing we see in the struct is the list_head struct, which is used to keep a linked list of hooks, but it's not necessary for our firewall. The \verb{nf_hookfn*} struct member is the name of the hook function that we define. The pf integer member is used to identify the protocol family; it's \verb{PF_INET} for IPv4. The next field is the hooknum int, and this is for the hook we want to use. The last field is the priority int. The priorities are specified in \verb|linux/netfilter_ipv4.h|, but for our situation we want \verb{NF_IP_PRI_FIRST}.''\cite{netfilter-firewall}
+The list_head struct inside of the nf_hook_ops will be covered in more detail in section \ref{hook_add} and why it's needed.
 \cite{netfilter-firewall}
 
 \begin{lstlisting}
@@ -28,8 +22,15 @@ struct nf_hook_ops
 };
 \end{lstlisting}
 
-\subsection{hook_add}\label{Hook Adding}
-The kernel attempts to add the hook passed, by first creating a nf_hook_mutex object, locking it until it has added the hook to the doubly linked list, making the current hook the previous one and this hook the current hook. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules.
+\subsection{hook_list_object}\label{Hook List Object}
+The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality. A linked list is a perfect data structure in this case since there is no specific element indexing, but rather traversing through the list and calling all the available hooks. There are 6 hooks lists. One for each of \verb|NF_INET_PRE_ROUTING| , \verb|NF_INET_LOCAL_IN|, \verb|NF_INET_FORWARD|, \verb|NF_INET_LOCAL_OUT|, \verb|NF_INET_POST_ROUTING|. By breaking the lists into one for each hook spot, on every spot where the hooks need to be called only the hooks responsible for that spot are iterated.
+
+\begin{lstlisting}
+extern struct list_head nf_hooks[NFPROTO_NUMPROTO][NF_MAX_HOOKS];
+\end{lstlisting}
+
+\subsection{Hook Adding}\label{hook_add}
+The kernel attempts to add the hook object passed, by first creating a nf_hook_mutex object, locking it until it has finnished the hook adding process. It then adds the given hook object by using the \verb|struct list_head list| as the reference pointer inside of the linked list but before adding it, loops through the list so that the list remains sorted by priority. That way when the hooks are called there is no need for sorting and the hooks with higher priority are called first. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules. 
 
 \begin{lstlisting}
 int nf_register_hook(struct nf_hook_ops *reg)
