@@ -654,7 +654,7 @@ ipt_do_table(struct sk_buff *skb,
 \section{ConnTrack}\label{conntrack}
 
 \subsection{Overview}
-The \verb|conntrack| system provides connection tracking so that as each packet is processed, its context within in a connection is known. This allows for more intelligent filtering decisions to be made and is essential to implement a so-called \textit{stateful firewall} as opposed to a simple packet filter. Other modules that require connection tracking are built on top of the basic functionality provided by \verb|conntrack|.
+The \verb|conntrack| system provides connection tracking so that as each packet is processed, its context within in a connection is known. This allows for more intelligent filtering decisions to be made and is essential to implement a so-called \textit{stateful firewall}, as opposed to a simple packet filter. Other modules that require connection tracking are built on top of the basic functionality provided by \verb|conntrack|.
 
 \subsection{Data Structures}
 
@@ -987,17 +987,17 @@ for existing connections and \verb|expect_hash| for expected
 connections (explained in \ref{reply}). If the packet is the
 initiating packet of a new connection (e.g. a SYN packet for a TCP
 connection\cite{tcpip-illustrated}) it will not be found. Instead, its tuple (in
-\verb|nf_conntrack_tuple_hash| \cref{nf_conntrack_tuple_hash}) and reverse tuple(\ref{nf_conn}) are
-added to the \verb|unconfirmed| table in the \verb|netns_ns|
-structure. The packet is then passed on for routing. However, there is
-some chance that the packet may not emerge, for instance, if there is no valid
-route or it is dropped by a subsequent
-rule\cite{netfilter-internals}. In this scenario, the tuples will
-eventually time-out and be culled from \verb|unconfirmed|. On the
-other hand, if it is routed successfully the \verb|POST_ROUTING| hook
-is called. The initiating tuple the reverse tuple is transferred from \verb|unconfirmed| to
-\verb|hash_expect|. At this point it can be assumed the packet will
-leave the host.
+\verb|nf_conntrack_tuple_hash| \cref{nf_conntrack_tuple_hash}) and
+reverse tuple(\ref{nf_conn}) are added to the \verb|unconfirmed| table
+in the \verb|netns_ns| structure. The packet is then passed on for
+routing. However, there is some chance that the packet may not emerge,
+for instance, if there is no valid route or it is dropped by a
+subsequent rule\cite{netfilter-internals}. In this scenario, the
+tuples will eventually time-out and be culled from \verb|unconfirmed|.
+On the other hand, if it is routed successfully the
+\verb|POST_ROUTING| hook is called. The initiating tuple the reverse
+tuple is transferred from \verb|unconfirmed| to \verb|hash_expect|. At
+this point it can be assumed the packet will leave the host.
 
 \subsubsection{Reply to new connection}\label{reply}
 When the reply packet returns to the firewall, it again triggers the
@@ -1010,15 +1010,9 @@ packet is made available to the rest of the kernel through the socket buffer str
 
 \section{Registration}\label{registration}
 
-\begin{figure}
-\centering
-\includegraphics[totalheight=0.40\textheight]{images/hooks.png}
-\caption{The packet is passed into \code{iptables}' hooks at certain points
-  before and after routing.}\label{fig:hooks}
-\end{figure}
 
 
-%\input{report_registration.tex}
+\input{report_registration.tex}
 
 \bibliography{research}
 
