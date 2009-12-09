@@ -502,7 +502,11 @@ do_match(struct ipt_entry_match *m, const struct sk_buff *skb,
 }
 \end{lstlisting}
 
-\subsubsection{do\_table}
+\subsubsection{do\_table()}
+
+The \verb|do_table| function is an important function that walks through the match table. The main \verb|do| loop begins on line 53. 
+
+\lstset{stepnumber=1}
 
 \begin{lstlisting}
   /* Returns one of the generic firewall policies, like NF_ACCEPT. */
@@ -574,13 +578,6 @@ ipt_do_table(struct sk_buff *skb,
 		t = ipt_get_target(e);
 		IP_NF_ASSERT(t->u.kernel.target);
 
-#if defined(CONFIG_NETFILTER_XT_TARGET_TRACE) || \
-    defined(CONFIG_NETFILTER_XT_TARGET_TRACE_MODULE)
-		/* The packet is traced: log it */
-		if (unlikely(skb->nf_trace))
-			trace_packet(skb, hook, in, out,
-				     table->name, private, e);
-#endif
 		/* Standard target? */
 		if (!t->u.kernel.target->target) {
 			int v;
@@ -614,19 +611,8 @@ ipt_do_table(struct sk_buff *skb,
 		tgpar.target   = t->u.kernel.target;
 		tgpar.targinfo = t->data;
 
-
-#ifdef CONFIG_NETFILTER_DEBUG
-		tb_comefrom = 0xeeeeeeec;
-#endif
 		verdict = t->u.kernel.target->target(skb, &tgpar);
-#ifdef CONFIG_NETFILTER_DEBUG
-		if (tb_comefrom != 0xeeeeeeec && verdict == IPT_CONTINUE) {
-			printk("Target %s reentered!\n",
-			       t->u.kernel.target->name);
-			verdict = NF_DROP;
-		}
-		tb_comefrom = 0x57acc001;
-#endif
+
 		/* Target might have changed stuff. */
 		ip = ip_hdr(skb);
 		datalen = skb->len - ip->ihl * 4;
@@ -639,17 +625,15 @@ ipt_do_table(struct sk_buff *skb,
 	} while (!hotdrop);
 	xt_info_rdunlock_bh();
 
-#ifdef DEBUG_ALLOW_ALL
-	return NF_ACCEPT;
-#else
 	if (hotdrop)
 		return NF_DROP;
 	else return verdict;
-#endif
+
 
 #undef tb_comefrom
 }
 \end{lstlisting}
+\lstset{stepnumber=1}
 
 \section{ConnTrack}\label{conntrack}
 
@@ -780,10 +764,10 @@ connection on SMP systems. The \verb|tuplehash| is a two element array
 that contains the tuple for the initiating side of the connection
 (index \verb|IP_CT_DIR_ORIGINAL|) and a second tuple for the
 reply packet (index \verb|IP_CT_DIR_ORIGINAL|). The reply tuple
-can be easily calculated by inverting fields. For example in a TCP
-connection, to generate the reply tuple, the source and destination IP
+can be easily calculated by inverting fields. For example, to generate the reply tuple for a TCP
+connection,  the source and destination IP
 addresses of the initial packet are inverted, as are the source and
-destination port numbers.
+destination port numbers\cite{tcpip-illustrated}.
 
 \begin{lstlisting}
   struct nf_conn {
@@ -827,12 +811,12 @@ destination port numbers.
 \subsubsection{conntrack.h/netns\_ct}
 
 This points to global connection tracking entities like the
-\verb|expect_hash| hash table for expected packets. The atomic
+\verb|expect_hash| hash table for expected packets \figref{fig:conntrack_flow1}. The atomic
 \verb|count| refers to the number of active connections being tracked
 through the firewall, and \verb|hash| points to the hash table for
 active connections. The \verb|unconfirmed| table is where tuples are
 temporarily stashed before the corresponding packet leaves the
-firewall.
+firewall \figref{fig:conntrack_flow2}.
 
 \begin{lstlisting}
   struct netns_ct {
@@ -930,8 +914,8 @@ look-ups\footnote{Tuple collisions are inserted in front -- there is
 \verb|list_head| is superfluous. The \verb|hlist_head| contains only a
 \verb|first| pointer field. Although, this creates another
 complication: when accessing the previous node (e.g. for insertion) it
-is no longer known whether it is a \verb|hlist_node.next| or a
-\verb|hlist_head.first|. To get around this, the \verb|pprev| field is
+is no longer known whether it is a \verb|hlist_node| or a
+\verb|hlist_head|. To get around this, the \verb|pprev| field is
 a pointer to a pointer -- a pointer to whatever field is pointing to
 the current node. Thus, for insertions and deletions, the previous node/head can be
 updated regardless of type.
@@ -995,7 +979,7 @@ for instance, if there is no valid route or it is dropped by a
 subsequent rule\cite{netfilter-internals}. In this scenario, the
 tuples will eventually time-out and be culled from \verb|unconfirmed|.
 On the other hand, if it is routed successfully the
-\verb|POST_ROUTING| hook is called. The initiating tuple the reverse
+\verb|POST_ROUTING| hook is called. The initiating tuple and the reverse
 tuple is transferred from \verb|unconfirmed| to \verb|hash_expect|. At
 this point it can be assumed the packet will leave the host.
 
