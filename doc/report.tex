@@ -502,9 +502,9 @@ do_match(struct ipt_entry_match *m, const struct sk_buff *skb,
 }
 \end{lstlisting}
 
-\subsubsection{do\_table()}
+\subsubsection{do\_table}
 
-The \verb|do_table| function is an important function that walks through the match table. The main \verb|do| loop begins on line 53. 
+The \verb|do_table| function is an important function that walks through the match table. The main \verb|do| loop begins on line 53. The loop continues so long as the matches are successful. Eventually a target is called and it returns a \verb|verdict| on whether or not the packet should be accepted. If the verdict is to continue, it moves on to the next rule. A hotdrop breaks out of the loop early if the packet is to be dropped immediately.
 
 \lstset{stepnumber=1}
 
