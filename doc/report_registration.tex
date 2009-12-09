@@ -30,7 +30,7 @@ extern struct list_head nf_hooks[NFPROTO_NUMPROTO][NF_MAX_HOOKS];
 \end{lstlisting}
 
 \subsection{Hook Adding}\label{hook_add}
-The kernel attempts to add the hook object passed, by first creating a nf_hook_mutex object, locking it until it has finnished the hook adding process. It then adds the given hook object by using the \verb|struct list_head list| as the reference pointer inside of the linked list but before adding it, loops through the list so that the list remains sorted by priority. That way when the hooks are called there is no need for sorting and the hooks with higher priority are called first. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules. 
+The kernel attempts to add the hook object passed, by first creating a \verb|nf_hook_mutex| object, locking it until it has finnished the hook adding process. It then adds the given hook object by using the \verb|struct list_head list| as the reference pointer inside of the linked list but before adding it, loops through the list so that the list remains sorted by priority. That way when the hooks are called there is no need for sorting and the hooks with higher priority are called first. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules. 
 
 \begin{lstlisting}
 int nf_register_hook(struct nf_hook_ops *reg)
