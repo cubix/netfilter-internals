@@ -633,7 +633,7 @@ ipt_do_table(struct sk_buff *skb,
 #undef tb_comefrom
 }
 \end{lstlisting}
-\lstset{stepnumber=1}
+\lstset{stepnumber=0}
 
 \section{ConnTrack}\label{conntrack}
 
@@ -1020,6 +1020,13 @@ struct nf_hook_ops
 	int		priority;
 };
 \end{lstlisting}
+\figref{fig:hook_object}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.2\textheight]{images/hook_object.png}
+  \caption{Hook Object}\label{fig:hook_object}
+\end{figure}
 
 \subsection{Hook List Object}\label{hook_list_object}
 
@@ -1036,6 +1043,20 @@ The hook list object is a standard double linked list object used throughout the
 \begin{lstlisting}
 extern struct list_head nf_hooks[NFPROTO_NUMPROTO][NF_MAX_HOOKS];
 \end{lstlisting}
+
+\figref{fig:hook_objects_list}
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.4\textheight]{images/hook_objects_list.png}
+  \caption{The list of hook objects}\label{fig:hook_objects_list}
+\end{figure}
+
+\figref{fig:nf_hooks_list}
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.8\textheight]{images/nf_hooks_list.png}
+  \caption{Two dimensional array of [protocol family] [hook type], and the corresponding hook lists}\label{fig:nf_hooks_list}
+\end{figure}
 
 \subsection{Hook Adding}\label{hook_add}
 The kernel attempts to add the hook object passed, by first creating a \verb|nf_hook_mutex| object, locking it until it has finnished the hook adding process. It then adds the given hook object by using the \verb|struct list_head list| as the reference pointer inside of the linked list but before adding it, loops through the list so that the list remains sorted by priority. That way when the hooks are called there is no need for sorting and the hooks with higher priority are called first. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules. 
@@ -1059,6 +1080,13 @@ int nf_register_hook(struct nf_hook_ops *reg)
 }
 EXPORT_SYMBOL(nf_register_hook);
 \end{lstlisting}
+
+\figref{fig:hook_object_add}
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.5\textheight]{images/hook_object_add.png}
+  \caption{Adding a hook object}\label{fig:hook_object_add}
+\end{figure}
 
 \subsection{Hook List Adding}\label{hook_list_adding}
 The functionality to add several hooks at once also is available by letting the user provide an array of \verb|nf_hook_ops| and loop-add them to the linked list.
@@ -1100,6 +1128,12 @@ int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
 		 int (*okfn)(struct sk_buff *), int thresh);
 \end{lstlisting}
 
+\figref{fig:hook_processing}
+\begin{figure}[H]
+  \centering
+  \includegraphics[totalheight=0.5\textheight]{images/hook_processing.png}
+  \caption{Hooks Processing}\label{fig:hook_processing}
+\end{figure}
 
 
 
