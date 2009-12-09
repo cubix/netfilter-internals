@@ -7,6 +7,8 @@
 \usepackage{amssymb,amsmath} 
 \usepackage{amsthm}
 \usepackage[pdftex]{graphicx}
+\usepackage{rotating}
+
 %\usepackage{bookmarks=true}{hyperref}
 \usepackage{listings}
 \usepackage[pdftitle={Netfilter/iptables},pdfpagemode=UseOutlines,
@@ -46,35 +48,30 @@ bookmarks=true,pdftex=true,linkbordercolor={1 1 1}]{hyperref}
 
 \section{Overview}
 
+\verb|iptables| usually refers to the framework and associated modules that make up the firewall and NAT subsystem in the Linux kernel. (It is more probably called \verb|X_tables| since it supports several network protocols including IPv4, IPv6 and ARP.) \verb|iptables| is also the name of the userland program used for manipulating the in-kernel data structures that define the firewall and NAT rules. The framework provides hooks for general \textit{packet mangling} and can be used to implement kernel modules that in someway intercept, modify or track packets flowing through the Linux TCP/IP stack, e.g. an IPSec VPN could be implemented in this manner. This report will cover some of the major data structures that make up the firewalls rules and matching mechanism (\ref{rule-tables}), the connection tracking system (\ref{conntrack}) and the registration system(\ref{registration}) that allows modules to be registered to event hooks.
+
+
+\section{Rule Tables}\label{rule-tables}
+
+\subsection{Overview}
+
 An IP table is made of multiple chains; a chain is a list of rules
 associated with one or more hooks. Each rule consists of one or more
 matches, terminated by a target. The target is the action performed
-when a rule is entirely matched. The userspace tool \code{iptables} is
-used to manipulate the IP tables. The data structures are designed
-such that they can be used in both user and kernel mode.
+when a rule is entirely matched. The data structures are designed
+such that they can be used in both kernel mode and user mode by
+the \verb|iptables| command.
 
+\subsection{Data Structures}
 
-\begin{figure}
-\centering
-\includegraphics[totalheight=0.40\textheight]{images/hooks.png}
-\caption{The packet is passed into \code{iptables}' hooks at certain points
-  before and after routing.}\label{fig:hooks}
-\end{figure}
-
-\section{Table Data Structures}
-  
-
-\subsection{ip\_tables.h}
-
-
-\subsubsection{ipt\_ip}\label{ipt_ip}
+\subsubsection{ip\_tables.h/ipt\_ip}\label{ipt_ip}
 
 This struct specifies the minimal IP header information needed
 to to identify a packet. The \code{src} and \code{dst} fields identify
 the source and destination IP addresses, and \code{smsk} and
 \code{dmsk} identify the source and destination masks so that ranges
 of IP addresses can be specified in the rule, e.g. 192.168.0.0/24
-would match all IPs in the 192.168.0.0 subnet. The \code{initface} and
+would match all IPs in the 192.168.0.0 subnet\cite{tcpip-illustrated}. The \code{initface} and
 \code{outiface} fields specify inbound and outbound interfaces, and
 \code{iniface\_mask} and \code{outiface\_mask} allow the user to specify several
 interfaces at once. The protocol number is stored in \code{proto},
@@ -102,7 +99,7 @@ struct ipt_ip {
 
 \end{lstlisting}
 
-\subsubsection{ipt\_entry}
+\subsubsection{ip\_tables.h/ipt\_entry}
 
 This structure defines the starting point of each of the firewall
 rules, which are contained in arrays, i.e. tables.  The
@@ -145,14 +142,12 @@ struct ipt_entry
 };
 \end{lstlisting}
 
-\subsection{x\_tables.h}
-
-\subsubsection{xt\_entry\_match (ipt\_entry\_match)}
+\subsubsection{x\_tables.h/xt\_entry\_match (ipt\_entry\_match)}
 
 This provides a thin layer of abstraction so that code can be reused
 regardless of whether it is executing in the kernel or in user
 space. We will discuss \code{xt\_match} since we are concerned with
-the kernel\footnote{In some cases, structs have two names: one begining with xt and one
+the kernel\footnote{In some cases, structs have two names: one beginning with xt and one
 without. This is a result of the unification of common code in
 \code{ip\_tables}, \code{ip6\_tables} and \code{arp\_tables} into \code{x\_tables} (hence xt) -- a table
 structure that can handle all three protocols.}.
@@ -184,7 +179,7 @@ struct xt_entry_match
 };
 \end{lstlisting}
 
-\subsubsection{xt\_match}\label{xt_match}
+\subsubsection{x\_tables.h/xt\_match}\label{xt_match}
 This structure represents a match entry in a rule (possibly one of
 many). It is fairly abstract and meant to represent all types of
 matches.
@@ -192,12 +187,13 @@ matches.
 The \code{list} is the standard doubly linked list used in
 the Linux kernel; this simple struct has two fields, \code{prev} and
 \code{nest}, and  is defined in \code{include/linux/list.h}. In this
-case it is used to link together consecutive matches in the rule. The \code{name} field stores the name of the current
+case it is used to link together consecutive matches in the rule.
+The \code{name} field stores the name of the current
 table. The \code{revision} field stores the
 current revision number of the data structure so that if it changes in
 the future, backwards compatibility can be maintained.
 
-The \code{match} field is a pointer to the boolean function that
+The \code{match} field is a pointer to the Boolean function that
 determines whether or not the packet will be matched. The \code{skb}
 parameter is a pointer to a copy of the packet and
 \code{xt\_match\_param} is a pointer to additional parameters the
@@ -249,7 +245,7 @@ struct xt_match
 
 \subsubsection{xt\_mtchk\_param}\label{xt_mtchk_param}
 
-This struct is passed to a match extesion's \code{checkentry}
+This struct is passed to a match extension's \code{checkentry}
 function. The name of the table is in \code{table}. Protocol family
 information, (e.g. \code{ipt\_ip} (\ref{ipt_ip}) for IPv4) is stored
 in \code{entryinfo}.  The pointer \code{match} is the \code{xt\_match}
@@ -269,11 +265,11 @@ struct xt_mtchk_param {
 };
 \end{lstlisting}
 
-\subsubsection{xt\_target (ipt\_entry\_target)}
+\subsubsection{x\_tables/xt\_target (ipt\_entry\_target)}
 
 This structure represents the final target entry in a rule and is
 analogous to \code{xt\_match} (\ref{xt_match}). Just as
-\code{xt\_match} has a pointer to a match and checkentry functions,
+\code{xt\_match} has a pointer to a match and \verb|checkentry| functions,
 \code{xt\_target} has pointers to a \code{target} function and its own
 \code{checkentry} function. Similarly, it has to deal with possible
 differences in memory alignment between kernel and user space. The
@@ -319,7 +315,7 @@ struct xt_target
 };
 \end{lstlisting}
 
-\subsection{Diagrams}
+\subsection{Diagram}
 
 \begin{figure}[H]
 \centering
@@ -327,9 +323,9 @@ struct xt_target
 \caption{The structure of an \code{iptables} IPv4 table.}\label{fig:table1}
 \end{figure}
 
-\section{Execution}
+\subsection{Execution}
 
-\subsection{ip\_tables.h}
+\subsubsection{ip\_tables.h/IPT\_MATCH\_ITERATE}
 
 For historical reasons, the IP specific \code{IPT\_MATCH\_ITERATE}
 macro calls the more general \code{XT\_MATCH\_ITERATE}. 
@@ -340,8 +336,8 @@ macro calls the more general \code{XT\_MATCH\_ITERATE}.
 	XT_MATCH_ITERATE(struct ipt_entry, e, fn, ## args)
 \end{lstlisting}
 
-Similarly, the IPv4 specific \code{IPT\_ENTRY\_ITERATRE} calls
-\code{XT\_ENTRY\_ITERATE} to iterate through the rule entries begining
+Similarly, the IPv4 specific \code{IPT\_ENTRY\_ITERATE} calls
+\code{XT\_ENTRY\_ITERATE} to iterate through the rule entries beginning
 at \code{ipt\_entry}.
 
 \begin{lstlisting}
@@ -349,8 +345,6 @@ at \code{ipt\_entry}.
 #define IPT_ENTRY_ITERATE(entries, size, fn, args...) \
 	XT_ENTRY_ITERATE(struct ipt_entry, entries, size, fn, ## args)
 \end{lstlisting}
-
-\subsection{x\_tables.h}
 
 \subsubsection{XT\_MATCH\_ITERATE}
 
@@ -419,9 +413,8 @@ entry\footnote{\code{XT\_ENTRY\_ITERATE} skips the application of
 })
 \end{lstlisting}
 
-\subsection{ip\_tables.c}
 
-\subsubsection{ip\_packet\_match}
+\subsubsection{ip\_tables.c/ip\_packet\_match}
 
 Below is the basic match function that is performed on the header of
 every incoming packet (with some debugging statements omitted). Lines
@@ -489,7 +482,7 @@ ip_packet_match(const struct iphdr *ip,
 \subsubsection{do\_match}
 The \code{do\_match} function is the function called by the
 \code{XT\_MATCH\_ITERATOR} macro. It executes the match routine
-associted with each match entry in the rule, for example it would call
+associated with each match entry in the rule, for example it would call
 \code{ip\_packet\_match} above for a basic IPv4 match.
 
 \lstset{stepnumber=0}
@@ -658,11 +651,14 @@ ipt_do_table(struct sk_buff *skb,
 }
 \end{lstlisting}
 
-\section{ConnTrack Data Structures}
+\section{ConnTrack}\label{conntrack}
 
-\subsection{nf\_conntrack\_tuple.h}
+\subsection{Overview}
+The \verb|conntrack| system provides connection tracking so that as each packet is processed, its context within in a connection is known. This allows for more intelligent filtering decisions to be made and is essential to implement a so-called \textit{stateful firewall} as opposed to a simple packet filter. Other modules that require connection tracking are built on top of the basic functionality provided by \verb|conntrack|.
 
-\subsubsection{nf\_conntrack\_tuple}\label{nf_conntrack_tuple}
+\subsection{Data Structures}
+
+\subsubsection{nf\_conntrack\_tuple.h/nf\_conntrack\_tuple}\label{nf_conntrack_tuple}
 
 The \code{nf\_conntrack\_tuple} structure is used to uniquely identify
 a connection that has passed through the firewall and whose state is
@@ -672,7 +668,7 @@ which are immutable. The field \code{u3} represents the destination
 address in either IPv4 and IPv6, depending on what type of packet is
 being tracked. The union \code{u} with \code{tcp}, \code{udp},
 \code{icmp}, etc., track layer 4 protocol state fields for the
-destination, such as the port number for TCP. The \code{all} field is
+destination, such as the port number for TCP\cite{tcpip-illustrated}. The \code{all} field is
 used when multiple fields need to be accessed at once, e.g. for
 hashing of the tuple. Finally, \code{protonum} stores the protocol in
 use, (TCP or UDP, etc.) and \code{dir} stores the direction.
@@ -717,7 +713,7 @@ struct nf_conntrack_tuple
 };
 \end{lstlisting}
 
-\subsubsection{nf\_conntrack\_tuple\_hash}\label{nf_conntrack_tuple_hash}
+\subsubsection{nf\_conntrack\_tuple.h/nf\_conntrack\_tuple\_hash}\label{nf_conntrack_tuple_hash}
 
 \begin{lstlisting}
   /* Connections have two entries in the hash table: one for each way */
@@ -727,7 +723,7 @@ struct nf_conntrack_tuple_hash {
 };
 \end{lstlisting}
 
-\subsubsection{ip\_conntrack\_old\_tuple}
+\subsubsection{nf\_conntrack\_tuple.h/ip\_conntrack\_old\_tuple}
 
 This is an old IPv4 specific format for the tuple. It is kept for
 historical reasons since it has been exposed to userspace.
@@ -755,7 +751,7 @@ struct ip_conntrack_old_tuple
 };
 \end{lstlisting}
 
-\subsubsection{xt\_conntrack\_info}
+\subsubsection{nf\_conntrack\_tuple.h/xt\_conntrack\_info}
 
 \begin{lstlisting}
 struct xt_conntrack_info
@@ -776,7 +772,7 @@ struct xt_conntrack_info
 
 
 
-\subsubsection{nf\_conn}\label{nf_conn}
+\subsubsection{nf\_conntrack.h/nf\_conn}\label{nf_conn}
 
 The \code{ct\_general} is an atomic counter that tracks the usage of
 the \code{nf\_conn} structure. The spinlock is used to protect the
@@ -784,9 +780,9 @@ connection on SMP systems. The \verb|tuplehash| is a two element array
 that contains the tuple for the initiating side of the connection
 (index \verb|IP_CT_DIR_ORIGINAL|) and a second tuple for the
 reply packet (index \verb|IP_CT_DIR_ORIGINAL|). The reply tuple
-can be easily calculated by inversing fields. For example in a TCP
+can be easily calculated by inverting fields. For example in a TCP
 connection, to generate the reply tuple, the source and destination IP
-addresses of the initial packet are inversed, as are the source and
+addresses of the initial packet are inverted, as are the source and
 destination port numbers.
 
 \begin{lstlisting}
@@ -834,8 +830,8 @@ This points to global connection tracking entities like the
 \verb|expect_hash| hash table for expected packets. The atomic
 \verb|count| refers to the number of active connections being tracked
 through the firewall, and \verb|hash| points to the hash table for
-active connections. The \verb|uncomfirmed| table is where tuples are
-tempoariliy stashed before the corresponding packet leaves the
+active connections. The \verb|unconfirmed| table is where tuples are
+temporarily stashed before the corresponding packet leaves the
 firewall.
 
 \begin{lstlisting}
@@ -913,25 +909,25 @@ firewall.
 \end{lstlisting}
 
 
-\subsubsection{Hash and Expect Table Diagrams}
+\subsubsection{Diagram}
 
 The hash table shown in diagram \figref{fig:hash} is used to store
 tuples for established connections. Each entry points to a list of tuples
 with the same hash key. New tuples are inserted at the head.
 
 The efficiency of this structure is extremely important since a packet's tuple must be
-looked up everytime it arrives on an interface or sent from an
+looked up every time it arrives on an interface or is sent from an
 internal process. Space must also be considered because the table can
 grow quite large on a busy firewall handling thousands of connections
 concurrently.
 
-One example of space saving was the use of
+One space optimization was the use of
 \verb|hlist_node| and \verb|hlist_head| over the more general \verb|list_head|. The
 latter has a pointer to the tail of the list, which means the tail can
 be reached in $O(N)$ time. However, since this is not needed for tuple
 look-ups\footnote{Tuple collisions are inserted in front -- there is
   no reason to jump to the tail.}, the extra pointer in
-\verb|list_head| is not needed. The \verb|hlist_head| contains only a
+\verb|list_head| is superfluous. The \verb|hlist_head| contains only a
 \verb|first| pointer field. Although, this creates another
 complication: when accessing the previous node (e.g. for insertion) it
 is no longer known whether it is a \verb|hlist_node.next| or a
@@ -952,13 +948,13 @@ the address containing structure address from the member address.
 \end{lstlisting}
 
 
-\begin{figure}[H]
+\begin{sidewaysfigure}
   \centering
-  \includegraphics[totalheight=0.45\textheight]{images/hash_expect_tables.png}
+  \includegraphics[totalheight=0.60\textheight]{images/hash_expect_tables.png}
   \caption{The structure of the hash tables that store active
     connections (\code{hash} pointer) and expected connections
     (\code{expect\_hash}).}\label{fig:hash}
-\end{figure}
+\end{sidewaysfigure}
 
 \subsection{Execution}
 
@@ -986,11 +982,11 @@ When a packet arrives on an interface or is sent by a local process,
 it triggers the \verb|PRE_ROUTING| or \verb|LOCAL_OUT| hooks
 respectively\figref{fig:hooks}. The \verb|conntrack| module is always called first
 because it is registered with the highest priority. The packet's tuple
-is calculated and looked-up in the \verb|hash| \figref{fig:hash} table
+is calculated\cite{jhash} and looked-up in the \verb|hash| \figref{fig:hash} table
 for existing connections and \verb|expect_hash| for expected
 connections (explained in \ref{reply}). If the packet is the
 initiating packet of a new connection (e.g. a SYN packet for a TCP
-connection) it will not be found. Instead, its tuple (in
+connection\cite{tcpip-illustrated}) it will not be found. Instead, its tuple (in
 \verb|nf_conntrack_tuple_hash| \cref{nf_conntrack_tuple_hash}) and reverse tuple(\ref{nf_conn}) are
 added to the \verb|unconfirmed| table in the \verb|netns_ns|
 structure. The packet is then passed on for routing. However, there is
@@ -1012,7 +1008,15 @@ found immediately in the \verb|hash| table. The state of any given
 packet is made available to the rest of the kernel through the socket buffer struct
 \verb|sk_buff.nfct|.
 
-\section{Registration}
+\section{Registration}\label{registration}
+
+\begin{figure}
+\centering
+\includegraphics[totalheight=0.40\textheight]{images/hooks.png}
+\caption{The packet is passed into \code{iptables}' hooks at certain points
+  before and after routing.}\label{fig:hooks}
+\end{figure}
+
 
 %\input{report_registration.tex}
 
