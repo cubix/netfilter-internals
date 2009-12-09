@@ -1131,6 +1131,9 @@ int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
 \end{figure}
 
 
+\section{Conclusion}
+
+The \verb|iptables| is a highly optimized and capable firewall. We were often surprised by the elegance of the code despite the need for efficiency. If time permitted, we would like to have tried implementing an \verb|iptables| module, which seemed relatively straightforward. The most confusing aspect was dealing with the remnants of the code unification that was performed in 2006-2007, but largely undocumented. This left several artifacts in the code referring to the older IPT data structures that were often redefined to XT equivalents. For navigating the code, we found \verb|global| for Emacs and the C/C++ module for Eclipse extremely helpful. They allowed for quick definition look-ups. 
 
 \bibliography{research}
 
