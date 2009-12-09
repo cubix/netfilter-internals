@@ -3,7 +3,7 @@
 \subsection{Hook Object}\label{hook_object}
 To be able to register a hook, the \verb|nf_register_hook|takes a struct of type \verb|nf_hook_ops, which is a structure hook to be added to the list of hooks and its options.
 From Victor Castro's description: ``The first thing we see in the struct is the \verb|list_head| struct, which is used to keep a linked list of hooks, but it's not necessary for our firewall. The \verb|nf_hookfn*| struct member is the name of the hook function that we define. The pf integer member is used to identify the protocol family; it's \verb|PF_INET| for IPv4. The next field is the hooknum int, and this is for the hook we want to use. The last field is the priority int. The priorities are specified in \verb|linux/netfilter_ipv4.h|, but for our situation we want \verb|NF_IP_PRI_FIRST|.''\cite{netfilter-firewall}
-The list_head struct inside of the nf_hook_ops will be covered in more detail in section \ref{hook_add} and why it's needed.
+The \verb|list_head| struct inside of the \verb|nf_hook_ops| will be covered in more detail in section \ref{hook_add} and why it's needed.
 \cite{netfilter-firewall}
 
 \begin{lstlisting}
