@@ -1003,7 +1003,7 @@ packet is made available to the rest of the kernel through the socket buffer str
 \subsection{Hook Object}\label{hook_object}
 To be able to register a hook, the \verb|nf_register_hook|takes a struct of type \verb|nf_hook_ops|, which is a structure hook to be added to the list of hooks and its options.
 From Victor Castro's description: ``The first thing we see in the struct is the \verb|list_head| struct, which is used to keep a linked list of hooks, but it's not necessary for our firewall. The \verb|nf_hookfn*| struct member is the name of the hook function that we define. The pf integer member is used to identify the protocol family; it's \verb|PF_INET| for IPv4. The next field is the hooknum int, and this is for the hook we want to use. The last field is the priority int. The priorities are specified in \verb|linux/netfilter_ipv4.h|, but for our situation we want \verb|NF_IP_PRI_FIRST|.''\cite{netfilter-firewall}
-The \verb|list_head| struct inside of the \verb|nf_hook_ops| will be covered in more detail in section \ref{hook_add} and why it's needed.\cite{netfilter-firewall}
+The \verb|list_head| struct inside of the \verb|nf_hook_ops| will be covered in more detail in section \ref{hook_add} and why it's needed.\cite{netfilter-firewall} \figref{fig:hook_object}
 
 \begin{lstlisting}
 struct nf_hook_ops
@@ -1020,7 +1020,6 @@ struct nf_hook_ops
 	int		priority;
 };
 \end{lstlisting}
-\figref{fig:hook_object}
 
 \begin{figure}[H]
   \centering
@@ -1038,28 +1037,26 @@ struct nf_hook_ops
   before and after routing.}\label{fig:hooks}
 \end{figure}
 
-The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality. A linked list is a perfect data structure in this case since there is no specific element indexing, but rather traversing through the list and calling all the available hooks. There are 6 hooks lists \figref{fig:hooks}. One for each of \verb|NF_INET_PRE_ROUTING| , \verb|NF_INET_LOCAL_IN|, \verb|NF_INET_FORWARD|, \verb|NF_INET_LOCAL_OUT|, \verb|NF_INET_POST_ROUTING|. By breaking the lists into one for each hook spot, on every spot where the hooks need to be called only the hooks responsible for that spot are iterated.
+The hook list object is a standard double linked list object used throughout the kernel. It's definition \verb|list_head| and utility functions are defined in \verb|include/linux/list.h| and allows for standard linked list functionality. A linked list is a perfect data structure in this case since there is no specific element indexing, but rather traversing through the list and calling all the available hooks \figref{fig:hook_objects_list}. There are 6 hooks lists \figref{fig:hooks}. One for each of \verb|NF_INET_PRE_ROUTING| , \verb|NF_INET_LOCAL_IN|, \verb|NF_INET_FORWARD|, \verb|NF_INET_LOCAL_OUT|, \verb|NF_INET_POST_ROUTING|. By breaking the lists into one for each hook spot, on every spot where the hooks need to be called only the hooks responsible for that spot are iterated.\figref{fig:nf_hooks_list}
 
 \begin{lstlisting}
 extern struct list_head nf_hooks[NFPROTO_NUMPROTO][NF_MAX_HOOKS];
 \end{lstlisting}
 
-\figref{fig:hook_objects_list}
 \begin{figure}[H]
   \centering
   \includegraphics[totalheight=0.4\textheight]{images/hook_objects_list.png}
   \caption{The list of hook objects}\label{fig:hook_objects_list}
 \end{figure}
 
-\figref{fig:nf_hooks_list}
 \begin{figure}[H]
   \centering
-  \includegraphics[totalheight=0.8\textheight]{images/nf_hooks_list.png}
+  \includegraphics[totalheight=0.4\textheight]{images/nf_hooks_list.png}
   \caption{Two dimensional array of [protocol family] [hook type], and the corresponding hook lists}\label{fig:nf_hooks_list}
 \end{figure}
 
 \subsection{Hook Adding}\label{hook_add}
-The kernel attempts to add the hook object passed, by first creating a \verb|nf_hook_mutex| object, locking it until it has finnished the hook adding process. It then adds the given hook object by using the \verb|struct list_head list| as the reference pointer inside of the linked list but before adding it, loops through the list so that the list remains sorted by priority. That way when the hooks are called there is no need for sorting and the hooks with higher priority are called first. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules. 
+The kernel attempts to add the hook object passed, by first creating a \verb|nf_hook_mutex| object, locking it until it has finnished the hook adding process. It then adds the given hook object by using the \verb|struct list_head list| as the reference pointer inside of the linked list but before adding it, loops through the list so that the list remains sorted by priority. That way when the hooks are called there is no need for sorting and the hooks with higher priority are called first. It unlocks the mutex and finally it adds the \verb|nf_register_hook| function to the modules API. This allows the function to be used from loaded modules.\figref{fig:hook_object_add} 
 
 \begin{lstlisting}
 int nf_register_hook(struct nf_hook_ops *reg)
@@ -1081,7 +1078,6 @@ int nf_register_hook(struct nf_hook_ops *reg)
 EXPORT_SYMBOL(nf_register_hook);
 \end{lstlisting}
 
-\figref{fig:hook_object_add}
 \begin{figure}[H]
   \centering
   \includegraphics[totalheight=0.5\textheight]{images/hook_object_add.png}
@@ -1120,7 +1116,7 @@ void nf_unregister_hooks(struct nf_hook_ops *reg);
 \end{lstlisting}
 
 \subsection{Hooks Processing}\label{hooks_processing}
-Finally there exist facilities inside \verb|netfilter.h| that allow the kernel to process the hooks that are registered at the various steps. Many are in the form of macros that add certain small functionality before the function \verb|nf_hook_slow| is called. This function iterates through all the hooks registered for the current step, executes them and proceeds according to the result returned by the hook.
+Finally there exist facilities inside \verb|netfilter.h| that allow the kernel to process the hooks that are registered at the various steps. Many are in the form of macros that add certain small functionality before the function \verb|nf_hook_slow| is called. This function iterates through all the hooks registered for the current step, executes them and proceeds according to the result returned by the hook.\figref{fig:hook_processing}
 
 \begin{lstlisting}
 int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
@@ -1128,7 +1124,6 @@ int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
 		 int (*okfn)(struct sk_buff *), int thresh);
 \end{lstlisting}
 
-\figref{fig:hook_processing}
 \begin{figure}[H]
   \centering
   \includegraphics[totalheight=0.5\textheight]{images/hook_processing.png}
